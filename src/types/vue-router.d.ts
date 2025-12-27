@@ -1,4 +1,4 @@
-declare module 'vue-router' {
+declare module "vue-router" {
   // 定义路由记录类型（匹配Vue Router的RouteRecordRaw）
   export interface RouteRecordRaw {
     path: string;
@@ -13,5 +13,6 @@ declare module 'vue-router' {
     history: any;
     routes: Array<RouteRecordRaw>;
   }): any;
+
   export function createWebHistory(base?: string): any;
 }

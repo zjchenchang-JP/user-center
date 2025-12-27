@@ -6,6 +6,7 @@
         <GlobalHeader />
       </a-layout-header>
       <a-layout-content class="content">
+        <!-- 动态路由切换入口 -->
         <router-view />
       </a-layout-content>
       <a-layout-footer class="footer">
