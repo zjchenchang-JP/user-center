@@ -2,7 +2,10 @@ package com.zjcc.usercenter;
 
 import com.zjcc.usercenter.mapper.UserMapper;
 import com.zjcc.usercenter.model.User;
+// Junit4
 import org.junit.Assert;
+// Junit5
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -16,7 +19,7 @@ class ZjccUserCenterBackendApplicationTests {
     @Test
     void contextLoads() {
         List<User> userList = userMapper.selectList(null);
-        Assert.assertEquals(5, userList.size());
+        Assertions.assertEquals(5, userList.size());
         userList.forEach(System.out::println);
     }
 
