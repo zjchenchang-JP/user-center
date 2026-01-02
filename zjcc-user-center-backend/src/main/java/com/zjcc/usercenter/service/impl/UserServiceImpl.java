@@ -104,7 +104,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      * @return 已登录用户信息
      */
     @Override
-    public User doLogin(String userAccount, String userPassword, HttpServletRequest request) {
+    public User userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         // 1.校验参数
         if (StringUtils.isAnyBlank(userAccount, userPassword)) {
             log.warn("账户密码不能为空！");
@@ -123,7 +123,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 账户不包含特殊字符
         if (!userAccount.matches(validPattern)) return null;
 
-
         // 2.验证密码
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         String encryptPassword = DigestUtils.md5DigestAsHex((StaticConst.SALT + userPassword).getBytes());
@@ -135,9 +134,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             log.warn("user login failed, useAccount cannot match userPassword");
             return null;
         }
-
         // 3.记录session状态
-        request.getSession().setAttribute(StaticConst.USER_LOGIN_STATE, loginUser.getId());
+        request.getSession().setAttribute(StaticConst.USER_LOGIN_STATE, loginUser);
 
         // 4. 返回脱敏用户
         return getSafetyUser(loginUser);
