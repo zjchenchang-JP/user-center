@@ -147,7 +147,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      * @param loginUser 登录用户
      * @return safetyUser
      */
-    private static User getSafetyUser(User loginUser) {
+    public static User getSafetyUser(User loginUser) {
         User safetyUser = new User();
         safetyUser.setId(loginUser.getId());
         safetyUser.setUsername(loginUser.getUsername());
@@ -158,6 +158,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         safetyUser.setEmail(loginUser.getEmail());
         safetyUser.setUserStatus(loginUser.getUserStatus());
         safetyUser.setCreateTime(loginUser.getCreateTime());
+        safetyUser.setUserRole(loginUser.getUserRole());
         return safetyUser;
     }
 }

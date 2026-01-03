@@ -8,6 +8,8 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 123456
+  session:
+    timeout: 86400 # 86400秒、1天 session失效
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false # 关闭MP查询数据库时 将驼峰命名自动转换为下划线
