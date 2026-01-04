@@ -22,7 +22,8 @@ import static com.zjcc.usercenter.utils.StaticConst.ADMIN_ROLE;
 import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 
 @RestController
-@RequestMapping("/user")
+@CrossOrigin(origins = {"http://localhost:5173"},allowCredentials = "true") // 临时解决跨越问题
+@RequestMapping("/api/user")
 @Slf4j
 public class UserController {
 
@@ -62,6 +63,22 @@ public class UserController {
         }
         return userService.userLogin(userAccount, userPassword, request);
     }
+
+    // 获取当前用户
+    @GetMapping("/current")
+    public User getCurrentUser(HttpServletRequest request) {
+        // 从session获取当前登录用户
+        Object stateUser = request.getSession().getAttribute(USER_LOGIN_STATE);
+        // null 不是任何类型：stateUser instanceof User 在 stateUser 为 null 时会返回 false
+        // 安全的类型检查：instanceof 操作符本身就包含了 null 值检查
+        // 条件不成立：当 stateUser 为 null 时，if (stateUser instanceof User) 条件为 false
+        if (stateUser instanceof User) {
+            // instanceof 检查通过，已确保 stateUser 不为 null
+            return (User) stateUser;
+        }
+        return null;
+    }
+
 
     /**
      * 用户管理接口 (仅管理员可见)
