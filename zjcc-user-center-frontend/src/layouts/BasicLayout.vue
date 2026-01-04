@@ -19,7 +19,7 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          编程导航官网 by CHEN CHANG
+          用户中心 by CHEN CHANG
         </a>
       </a-layout-footer>
     </a-layout>
@@ -28,6 +28,14 @@
 
 <script setup lang="ts">
 import GlobalHeader from "@/components/GlobalHeader.vue";
+import { getCurrentUser, searchUsers } from "@/api/user";
+
+// 测试请求发送 前后端联动
+// 异步函数返回 Promise → 用 then 方法监听 Promise 成功状态 → 箭头函数接收并处理成功结果。
+// then 核心：专门处理 Promise 成功状态，接收异步操作结果，支持链式调用。
+getCurrentUser().then((res) => {
+  console.log(res);
+});
 </script>
 <!--
   background-color: #efefef; 背景灰色

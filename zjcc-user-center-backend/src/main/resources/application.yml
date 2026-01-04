@@ -12,7 +12,7 @@ spring:
     timeout: 86400 # 86400秒、1天 session失效
 mybatis-plus:
   configuration:
-    map-underscore-to-camel-case: false # 关闭MP查询数据库时 将驼峰命名自动转换为下划线
+    map-underscore-to-camel-case: false # 关闭 [MP查询数据库时 将驼峰命名自动转换为下划线]
   global-config: #全局配置
     db-config:
       logic-delete-field: isDelete # 全局逻辑删除字段名(isDelete 为实体类属性名称)
