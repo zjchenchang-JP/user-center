@@ -1,6 +1,6 @@
 # Frontend
-## 2025/12/27
-### Router
+# 2025/12/27
+## Router
 #### 1.Vue Router 中，route.name 是全局唯一的标识，不能重复。
 当存在两个同名路由时，Vue Router 只会识别第一个,第二个会被忽略，表现为 “失效”（无法跳转、组件不渲染）。
 #### 2.可通过 name 跳转路由（无需拼接路径-解耦？，更灵活） router.push({ name: 'userRegister' });
@@ -51,8 +51,8 @@ const routes: Array<RouteRecordRaw> = [
 </a>
 ```
 
-## 2026/01/04
-### Router
+# 2026/01/04
+## Router
 ```vue
 // Vue: Parameter 'to' implicitly has an any type 错误，是 TypeScript 的类型检查提示
 // 核心原因是：在使用 router.afterEach 时，参数 to、from 没有显式声明类型，TypeScript 无法推断其类型，默认将其视为 any 类型（项目开启了 noImplicitAny 配置，禁止隐式 any 类型）
@@ -77,7 +77,7 @@ router.afterEach((to: Route, from: Route) => {
 current.value = [to.path];
 });
 ```
-### 封装 AJAX请求 
+## 封装 AJAX请求 
 #### 自定义Axios 请求拦截器
 ```vue
 // Encapsulating the Global Request - Standard Template
@@ -463,3 +463,407 @@ export const getUserList = async (page: number, size: number) => {
 2.  `myAxios.get(url, { params: {} })`、`myAxios.post(url, data, { headers: {} })` 是核心语法，本案例已完成对应改造；
 3.  GET 不用 `params` 可直接拼接 URL（模板字符串）或用 `URLSearchParams`（自动编码）；
 4.  删除接口需单独设 headers，是因为 `data` 传的是**字符串原始类型**（非 JSON 对象），axios 默认请求头不符合后端 `@RequestBody` 的 `application/json` 要求，其他 POST 接口传的是 JSON 对象，axios 自动设置了正确的请求头。
+
+# 2026/01/06
+```vue
+// 一
+ export const userLogin = async (params: any) => {
+   // 改造：post 方法直接传 URL + 请求体数据
+  return myAxios.post("/api/user/login", params);
+ };
+
+// 二
+export const deleteUser = async (id: string) => {
+return myAxios.post("/api/user/delete", { id }); // 传 JSON 对象 { id: id }
+// 无需手动设置 headers，axios 会自动添加 Content-Type: application/json
+};
+```
+为什么第二个接口函数 `deleteUser` 需要把参数 `id` 用 `{}` 包裹成对象，而如果不包裹会出现什么问题，我来帮你详细解释。
+### 核心原因：axios post 请求的参数格式要求
+`axios.post(url, data)` 方法的第二个参数 `data` 要求是**对象类型**（或 FormData/URLSearchParams 等），它会把这个对象序列化成 JSON 字符串，再发送给后端。
+
+#### 1. 为什么第二个函数要包裹 `{ id }`
+- 你定义的 `deleteUser` 函数接收的参数是单个字符串 `id`（比如 `deleteUser('123')`）。
+- 如果直接传 `id`（即 `myAxios.post("/api/user/delete", id)`），第二个参数就变成了**字符串类型**，而非对象。
+- 用 `{ id }` 是 ES6 的简写语法，等价于 `{ id: id }`，目的是把单个字符串参数包装成一个**键值对对象**，满足 axios 对 `data` 参数的格式要求，后端才能通过 `req.body.id` 拿到正确的 id 值。
+
+#### 2. 如果不包裹会发生什么？
+我们用代码对比两种情况，你就能直观看到差异：
+
+```javascript
+// 情况1：正确包裹（推荐）
+export const deleteUser = async (id: string) => {
+  return myAxios.post("/api/user/delete", { id }); 
+  // 实际发送的请求体：{"id":"123"}（JSON 格式）
+  // 后端可通过 req.body.id 获取到 "123"
+};
+
+// 情况2：不包裹（错误）
+export const deleteUser = async (id: string) => {
+  return myAxios.post("/api/user/delete", id); 
+  // 实际发送的请求体："123"（纯字符串）
+  // 后端 req.body 拿到的是 "123"，而非 { id: "123" }，无法通过 req.body.id 获取值
+};
+```
+
+#### 补充：第一个函数为什么不用额外包裹？
+第一个函数 `userLogin` 的参数 `params` 本身就是一个**对象**（比如 `{ username: 'xxx', password: 'xxx' }`），所以直接传 `params` 就满足 axios 的格式要求，无需额外包裹。
+
+### 总结
+1. `axios.post(url, data)` 的第二个参数 `data` 需为**对象/FormData 等结构化数据**，而非单个字符串/数字。
+2. 第二个函数包裹 `{ id }` 是为了把单个 `id` 字符串转换成 `{ id: 具体值 }` 的对象，让后端能通过 `req.body.id` 正常取值。
+3. 不包裹的话，请求体会变成纯字符串，后端无法按预期的 `req.body.id` 拿到参数，导致接口调用失败。
+
+### App.vue 页面的加载时机和应用逻辑
+```vue
+<!-- 根页面。启动项目就会加载 -->
+<template>
+  <div id="app">
+    <BasicLayout />
+    <!--    <LoginView />-->
+  </div>
+</template>
+
+<script setup lang="ts">
+import BasicLayout from "@/layouts/BasicLayout.vue";
+import LoginView from "@/views/LoginView.vue";
+import { useLoginUserStore } from "@/store/useLoginUserStore";
+
+// 进入页面就会调用fetchLoginUser()方法 获取当前登录用户
+// App.vue 作为项目的根组件，具备全局执行时机早、作用域覆盖全的特性，是处理这类全局初始化逻辑的最佳位置
+// 执行时机最早且唯一
+// 项目启动时，App.vue 是第一个被渲染的组件，且只会初始化一次（除非手动刷新页面）；
+// 在这里调用 fetchLoginUser()，能保证用户进入任何页面之前，先完成登录状态的拉取，避免页面渲染后才加载用户信息导致的 “未登录”→“已登录” 的状态闪烁。
+// 作用域覆盖整个应用
+// App.vue 是所有页面 / 组件的父组件，在这里初始化的用户状态（Pinia 中的 loginUser），能被全局所有子组件（比如导航栏、个人中心、各业务页面）立即访问；
+// 如果把这个逻辑写在某个子页面（比如 Home.vue），那么用户直接访问其他页面（比如 /profile）时，就会跳过这个逻辑，导致用户信息未加载。
+// 无需重复编写逻辑
+// 用户信息是全局通用的核心数据（导航栏显示用户名、权限控制、接口请求携带用户 token 等都需要），放在根组件初始化，无需在每个页面都写一遍 fetchLoginUser()，符合 “一次编写、全局复用” 的原则。
+// 二、对比：如果不写在 App.vue 会有什么问题？
+// 放置位置:	          问题点:
+// 某个业务页面	        访问其他页面时不会执行，导致用户信息缺失；重复进入该页面会重复调用接口
+// 路由守卫	            虽然也能实现，但路由守卫更适合做 “页面跳转控制”，而非 “数据初始化”，职责不清晰
+// 组件的 onMounted	  子组件的 onMounted 执行时机晚于页面渲染，可能出现 “未登录” 的临时状态
+const loginUserStore = useLoginUserStore();
+loginUserStore.fetchLoginUser();
+
+// import { onMounted } from "vue"; // 导入生命周期钩子
+// const loginUserStore = useLoginUserStore();
+// // 推荐：把异步逻辑放在 onMounted 中（符合 Vue 生命周期规范）
+// onMounted(async () => {
+//   try {
+//     await loginUserStore.fetchLoginUser(); // 等待用户信息加载完成
+//   } catch (error) {
+//     console.error("初始化用户信息失败：", error);
+//     // 可选：失败后跳转到登录页（如果需要）
+//     // router.push("/login");
+//   }
+// });
+</script>
+<style></style>
+``` 
+### 箭头函数演化过程
+箭头函数的限制：
+不能用作构造函数（不能用 new 调用）；
+没有 arguments 对象（可用剩余参数 ...args 替代）；
+没有自己的 this（适合纯逻辑函数，不适合处理 DOM 事件 / 对象方法）
+```vue
+// 1. 最基础：函数声明
+function sum(a, b) {
+  return a + b;
+}
+
+// 2. 进阶：函数表达式(函数作为一个变量；对比Java中的Lambda表达式)
+// 去掉 function，用 (参数) => { ... } 替代；
+const sum = function(a, b) {
+  return a + b;
+};
+
+// 3. 简化1：基础箭头函数
+// 仅适用于 “函数体只有一行 return” 的场景；
+const sum = (a, b) => {
+  return a + b;
+};
+
+// 4. 简化2：省略{} + 隐式返回
+// 如果函数体只有一行代码且是 return 语句，可以省略大括号 {}，同时省略 return 关键字（即 “隐式返回”）
+const sum = (a, b) => a + b;
+
+// （如果是单参数场景，再简化：省略()）
+const double = n => n * 2;
+
+// 如果函数没有参数
+// 语法：const 函数名 = () => 返回值;
+// 示例：无参数 + 单行逻辑（省略{}和return）
+const getRandomNum = () => Math.random();
+
+```
+## “箭头函数没有自己的 this”
+这是箭头函数和普通函数最核心的区别，也是新手最容易混淆的点。
+我会用**通俗的比喻 + 对比示例**，从“普通函数的 this 是什么”→“箭头函数的 this 从哪来”→“实际场景对比”一步步讲清楚，让你彻底理解。
+
+### 一、先搞懂：普通函数的 `this` 是“动态绑定”的
+普通函数的 `this` 不是固定的，它的指向**取决于函数的调用方式**（谁调用，`this` 就指向谁），这是理解箭头函数的前提。
+
+##### 普通函数 `this` 的常见场景示例：
+```javascript
+// 场景1：全局调用普通函数 → this 指向 window（浏览器）/ global（Node）
+function normalFn() {
+  console.log(this); 
+}
+normalFn(); // 输出：Window { ... }（浏览器环境）
+
+// 场景2：作为对象方法调用 → this 指向这个对象
+const user = {
+  name: "张三",
+  sayHi: function() {
+    console.log(this.name); // this 指向 user 对象
+  }
+};
+user.sayHi(); // 输出：张三
+
+// 场景3：作为 DOM 事件回调 → this 指向触发事件的 DOM 元素
+// 假设页面有个按钮 <button id="btn">点击</button>
+const btn = document.getElementById("btn");
+btn.onclick = function() {
+  console.log(this); // this 指向 btn 这个按钮元素
+};
+```
+核心总结：普通函数的 `this` 是“运行时绑定”的——**调用函数的那个对象，就是 this 的指向**。
+
+#### 二、箭头函数的 `this`：“继承父作用域的 this”（没有自己的 this）
+箭头函数**不会创建自己的 this**，它的 `this` 是“静态的”——**定义时就确定了，永远等于父作用域（外层代码）的 this**，和调用方式无关。
+
+可以用一个通俗的比喻理解：
+- 普通函数：自带一个“口袋”（this），调用时往口袋里装“调用者”；
+- 箭头函数：没有自己的“口袋”，只能用爸爸（父作用域）口袋里的东西。
+
+##### 对比示例1：对象方法中的箭头函数 vs 普通函数
+```javascript
+const user = {
+  name: "张三",
+  // 普通函数：this 指向调用者 user
+  sayHiNormal: function() {
+    console.log("普通函数：", this.name); // 输出：张三
+  },
+  // 箭头函数：没有自己的 this，继承父作用域的 this（这里父作用域是全局，this 指向 window）
+  sayHiArrow: () => {
+    console.log("箭头函数：", this.name); // 输出：undefined（因为 window 没有 name 属性）
+  }
+};
+
+user.sayHiNormal(); // 普通函数：张三
+user.sayHiArrow();  // 箭头函数：undefined
+```
+解释：
+- `sayHiNormal` 是普通函数，调用者是 `user`，所以 `this` 指向 `user`；
+- `sayHiArrow` 是箭头函数，没有自己的 `this`，它的 `this` 继承自定义时的父作用域（全局作用域，`this` 是 `window`），所以 `this.name` 是 `undefined`。
+
+##### 对比示例2：嵌套函数中的箭头函数（最能体现优势）
+这是箭头函数最常用的场景——解决普通函数嵌套时 `this` 丢失的问题：
+```javascript
+const user = {
+  name: "张三",
+  // 普通函数嵌套普通函数：this 丢失
+  getNameNormal: function() {
+    // 这里 this 指向 user（因为 getNameNormal 是 user 调用的）
+    setTimeout(function() {
+      // 这个普通函数的调用者是 window（setTimeout 回调默认由 window 调用）
+      console.log("普通嵌套：", this.name); // 输出：undefined
+    }, 100);
+  },
+  // 普通函数嵌套箭头函数：继承外层 this
+  getNameArrow: function() {
+    // 这里 this 指向 user
+    setTimeout(() => {
+      // 箭头函数没有自己的 this，继承外层 getNameArrow 的 this（即 user）
+      console.log("箭头嵌套：", this.name); // 输出：张三
+    }, 100);
+  }
+};
+
+user.getNameNormal(); // 普通嵌套：undefined
+user.getNameArrow();  // 箭头嵌套：张三
+```
+解释：
+- 普通嵌套中，定时器的回调函数是普通函数，`this` 指向 `window`，所以拿不到 `user.name`；
+- 箭头嵌套中，定时器的回调是箭头函数，直接继承外层 `getNameArrow` 的 `this`（即 `user`），所以能拿到 `user.name`。
+
+#### 三、关键场景：什么时候用/不用箭头函数？
+##### ✅ 适合用箭头函数的场景（利用“继承 this”的特性）
+1. 异步回调（如 `setTimeout`、`Promise.then/catch`、接口请求回调）；
+2. 纯逻辑函数（无依赖 `this` 的场景，比如求和、过滤数组）；
+3. 数组方法回调（`map`/`filter`/`forEach` 等）：
+   ```javascript
+   const arr = [1, 2, 3];
+   // 箭头函数作为数组回调，简洁且 this 继承外层
+   const doubleArr = arr.map(item => item * 2);
+   ```
+
+##### ❌ 不适合用箭头函数的场景（需要自己的 this）
+1. 对象的方法（如前面的 `user.sayHi`）；
+2. DOM 事件回调（需要 this 指向 DOM 元素）：
+   ```javascript
+   const btn = document.getElementById("btn");
+   // 错误：箭头函数的 this 继承全局（window），不是 btn
+   btn.onclick = () => {
+     this.style.color = "red"; // 报错：this.style 不存在
+   };
+   // 正确：用普通函数
+   btn.onclick = function() {
+     this.style.color = "red"; // this 指向 btn，正常生效
+   };
+   ```
+3. 构造函数（箭头函数不能用 `new` 调用，因为没有自己的 `this`）：
+   ```javascript
+   // 错误：箭头函数不能作为构造函数
+   const Person = () => {};
+   const p = new Person(); // Uncaught TypeError: Person is not a constructor
+   ```
+
+#### 总结
+1. 普通函数的 `this`：**动态绑定**，取决于“谁调用函数”；
+2. 箭头函数的 `this`：**静态绑定**，没有自己的 `this`，永远等于“定义时父作用域的 this”；
+3. 核心避坑：箭头函数不能用于需要“自己的 this”的场景（对象方法、DOM 事件、构造函数），适合用于异步回调、纯逻辑函数等场景。
+
+**箭头函数的 this 是“抄”父作用域的，普通函数的 this 是“看”谁调用的**
+
+## `arguments` 对象
+`arguments` 对象是 JavaScript 中普通函数里的一个特殊内置对象，我会用通俗的语言解释它的定义、用法、特点，以及和箭头函数的关系，结合例子让你彻底理解。
+
+### 一、先明确：`arguments` 是什么？
+`arguments` 是**普通函数执行时自动生成的一个类数组对象**，它包含了调用该函数时传入的**所有实参**（不管函数定义时声明了多少形参）。
+
+核心特点：
+- 仅存在于**普通函数**（函数声明/函数表达式）中；
+- 是“类数组”（有 `length` 属性、按索引访问，但不能用数组方法如 `map`/`forEach`）；
+- 实时映射函数的实参（修改 `arguments` 会同步修改实参，反之亦然）。
+
+### 二、基础用法示例（普通函数中的 `arguments`）
+#### 1. 最基础：获取所有传入的参数
+```javascript
+// 定义一个求和函数，不声明形参
+function sum() {
+  // arguments 包含所有传入的实参
+  console.log(arguments); // 类数组对象：[1, 2, 3]（调用时传入的参数）
+  console.log(arguments.length); // 3（参数个数）
+  console.log(arguments[0]); // 1（第一个参数）
+  console.log(arguments[1]); // 2（第二个参数）
+
+  // 利用 arguments 实现“任意个数参数求和”
+  let total = 0;
+  for (let i = 0; i < arguments.length; i++) {
+    total += arguments[i];
+  }
+  return total;
+}
+
+// 调用时传入 3 个参数（函数定义时无参数，但不影响）
+console.log(sum(1, 2, 3)); // 输出：6
+```
+
+#### 2. 形参和实参不匹配时，`arguments` 仍能获取所有实参
+```javascript
+// 函数定义时只声明 1 个形参
+function fn(a) {
+  console.log(a); // 1（第一个实参赋值给形参 a）
+  console.log(arguments); // [1, 2, 3]（仍能获取所有 3 个实参）
+  console.log(arguments[2]); // 3（第三个实参）
+}
+
+fn(1, 2, 3); // 调用时传入 3 个参数
+```
+
+#### 3. 实时映射：修改 `arguments` 会同步修改实参
+```javascript
+function fn(a) {
+  console.log(a); // 1（初始值）
+  arguments[0] = 100; // 修改 arguments 的第一个元素
+  console.log(a); // 100（形参 a 同步被修改）
+
+  a = 200; // 修改形参 a
+  console.log(arguments[0]); // 200（arguments 同步被修改）
+}
+
+fn(1);
+```
+
+### 三、`arguments` 的局限性：类数组转真正数组
+`arguments` 是“类数组”，不能直接用数组方法（如 `map`/`filter`），需要先转换成真正的数组：
+```javascript
+function fn() {
+  // 方式1：Array.from()（推荐）
+  const args1 = Array.from(arguments);
+  // 方式2：扩展运算符
+  const args2 = [...arguments];
+  // 方式3：Array.prototype.slice.call()（旧版写法）
+  const args3 = Array.prototype.slice.call(arguments);
+
+  // 转成数组后就能用 map 了
+  const doubleArgs = args1.map(item => item * 2);
+  console.log(doubleArgs);
+}
+
+fn(1, 2, 3); // 输出：[2, 4, 6]
+```
+
+### 四、箭头函数中没有 `arguments`！（关键区别）
+箭头函数**不绑定 `arguments` 对象**，如果在箭头函数中访问 `arguments`，会取到**外层普通函数的 `arguments`**（如果外层没有，则是全局的 `arguments`，浏览器中通常是 `undefined`）。
+
+#### 示例：箭头函数访问 `arguments` 的结果
+```javascript
+// 普通函数有 arguments
+function normalFn() {
+  console.log("普通函数的 arguments：", arguments); // [1, 2]
+
+  // 箭头函数没有自己的 arguments，继承外层的
+  const arrowFn = () => {
+    console.log("箭头函数的 arguments：", arguments); // [1, 2]（和外层普通函数一致）
+  };
+
+  arrowFn();
+}
+
+normalFn(1, 2);
+
+// 纯箭头函数中访问 arguments（无外层普通函数）
+const arrowFn = () => {
+  console.log(arguments); // Uncaught ReferenceError: arguments is not defined
+};
+arrowFn(1, 2);
+```
+
+### 五、ES6 替代方案：剩余参数（`...args`）
+因为 `arguments` 是“类数组”且箭头函数不支持，ES6 推出了**剩余参数**（`...args`），更灵活、更易用，是现在的主流写法：
+```javascript
+// 剩余参数（对比Java 可变参数） ...args 接收所有实参，且是真正的数组
+function sum(...args) {
+  console.log(args); // [1, 2, 3]（真正的数组）
+  // 直接用数组方法求和
+  return args.reduce((total, item) => total + item, 0);
+}
+
+console.log(sum(1, 2, 3)); // 6
+
+// 箭头函数也支持剩余参数（替代 arguments）
+const sumArrow = (...args) => {
+  return args.reduce((total, item) => total + item, 0);
+};
+console.log(sumArrow(1, 2, 3)); // 6
+```
+
+剩余参数 vs `arguments`：
+| 特性         | `arguments`       | 剩余参数 `...args` |
+|--------------|-------------------|--------------------|
+| 类型         | 类数组            | 真正的数组         |
+| 箭头函数支持 | ❌ 不支持          | ✅ 支持             |
+| 灵活性       | 低（需转换）      | 高（直接用数组方法）|
+| 可读性       | 差（隐式内置对象） | 好（显式声明）     |
+
+### 总结
+1. `arguments` 是普通函数执行时的**内置类数组对象**，包含所有传入的实参，实时映射形参；
+2. 箭头函数**没有自己的 `arguments`**，会继承外层普通函数的 `arguments`（无外层则报错）；
+3. 现代开发中，推荐用 **剩余参数 `...args`** 替代 `arguments`（数组类型、箭头函数支持、可读性更高）；
+4. 核心避坑：不要在箭头函数中试图使用 `arguments`，改用 `...args`。
+
+简单来说，`arguments` 是 ES6 前的“老工具”，能接收任意参数，但用法繁琐；`...args` 是 ES6 的“新工具”，解决了 `arguments` 的所有痛点，是现在的首选。

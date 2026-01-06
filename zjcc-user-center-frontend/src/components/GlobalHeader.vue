@@ -18,6 +18,7 @@
       </a-col>
       <a-col flex="80px">
         <div class="user-login-status">
+          {{ JSON.stringify(loginUserStore.loginUser) }}
           <a-button type="primary" href="/user/login">登录</a-button>
         </div>
       </a-col>
@@ -26,7 +27,11 @@
 </template>
 <script lang="ts" setup>
 import { h, ref } from "vue";
-import { MailOutlined, CrownOutlined } from "@ant-design/icons-vue";
+import {
+  MailOutlined,
+  CrownOutlined,
+  SettingOutlined,
+} from "@ant-design/icons-vue";
 import { MenuProps } from "ant-design-vue";
 // Vue: Parameter 'to' implicitly has an any type 错误，是 TypeScript 的类型检查提示
 // 核心原因是：在使用 router.afterEach 时，参数 to、from 没有显式声明类型，TypeScript 无法推断其类型，默认将其视为 any 类型（项目开启了 noImplicitAny 配置，禁止隐式 any 类型）
@@ -34,6 +39,9 @@ import { MenuProps } from "ant-design-vue";
 // 它是 vue-router 提供的标准化路由位置类型，包含了路由的 path、name、params、query、meta 等所有属性
 // 它是 to、from 参数的标准类型。
 import { useRouter, RouteLocationNormalized as Route } from "vue-router";
+import { useLoginUserStore } from "@/store/useLoginUserStore";
+
+const loginUserStore = useLoginUserStore();
 
 const router = useRouter();
 // 点击菜单后的路由跳转事件 route-to
@@ -45,7 +53,7 @@ const doMenuClick = ({ key }: { key: string }) => {
 
 const current = ref<string[]>(["home"]);
 // 保障刷新页面后菜单会根据 current 选中项高亮
-// router.afterEach 是 Vue Router 提供的全局后置守卫（也叫全局后置钩子）
+// router.afterEach 是 Vue Router 提供的全局路由后置守卫（也叫全局后置钩子）
 // 它的核心作用是：在每一次路由跳转（导航）成功完成之后（即路由已经完成切换，组件已经渲染 / 更新完毕），执行指定的回调函数。
 // 它与全局前置守卫（router.beforeEach）的核心区别是：
 // afterEach 是「导航完成后」触发，无法阻止路由跳转，仅用于执行一些后续的收尾 / 同步操作
@@ -72,7 +80,7 @@ const items = ref<MenuProps["items"]>([
   },
   {
     key: "/user/register",
-    // icon: () => h(SettingOutlined),
+    icon: () => h(SettingOutlined),
     label: "用户注册",
     title: "用户注册",
     // children: [
