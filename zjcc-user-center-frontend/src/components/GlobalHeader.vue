@@ -18,8 +18,14 @@
       </a-col>
       <a-col flex="80px">
         <div class="user-login-status">
-          {{ JSON.stringify(loginUserStore.loginUser) }}
-          <a-button type="primary" href="/user/login">登录</a-button>
+          <!-- 如果登录了，则展示登录用户名 如果没有用户名则给一个默认值“无名” -->
+          <div v-if="loginUserStore.loginUser.id">
+            {{ loginUserStore.loginUser.username ?? "无名" }}
+          </div>
+          <!-- 如果没登录，则展示登录按钮 -->
+          <div v-else>
+            <a-button type="primary" href="/user/login">登录</a-button>
+          </div>
         </div>
       </a-col>
     </a-row>

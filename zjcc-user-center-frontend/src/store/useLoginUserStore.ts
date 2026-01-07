@@ -37,12 +37,13 @@ export const useLoginUserStore = defineStore("loginUser", () => {
     try {
       if (res.data.code === 0 && res.data.data) {
         loginUser.value = res.data.data; // ref 数据需通过 .value 修改值
-      } else {
-        // TODO 测试代码
-        setTimeout(() => {
-          loginUser.value = { username: "！呵呵！", id: 1 };
-        }, 2000);
       }
+      // else {
+      //   //  测试代码
+      //   setTimeout(() => {
+      //     loginUser.value = { username: "！呵呵！", id: 1 };
+      //   }, 2000);
+      // }
     } catch (error) {
       // 注：失败处理，比如接口报错时重置为未登录状态
       console.error("获取用户信息失败：", error);

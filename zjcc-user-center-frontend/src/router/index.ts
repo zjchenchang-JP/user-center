@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, RouteRecordRaw } from "vue-router";
-import HomeView from "../views/HomeView.vue";
 import AboutView from "../views/AboutView.vue";
+import WelcomePage from "@/pages/WelcomePage.vue";
+import UserLoginPage from "@/pages/user/UserLoginPage.vue";
+import UserManagePage from "@/pages/admin/UserManagePage.vue";
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -16,7 +18,8 @@ const routes: Array<RouteRecordRaw> = [
     name: "home",
     // 静态导入文件初始化时一次性加载所有静态导入的组件，加载后可直接通过变量名（HomeView/AboutView）赋值给component
     // 首页组件、高频访问组件（如 HomeView） 加载速度快，无需异步等待
-    component: HomeView,
+    // component: HomeView,
+    component: WelcomePage,
   },
   {
     path: "/user/login",
@@ -26,7 +29,7 @@ const routes: Array<RouteRecordRaw> = [
     // which is lazy-loaded when the route is visited.
     // component: () =>
     //   import(/* webpackChunkName: "about" */ "../views/AboutView.vue"),
-    component: () => import("../views/LoginView.vue"),
+    component: UserLoginPage,
   },
   {
     path: "/user/register",
@@ -38,7 +41,7 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: "/admin/userManage",
     name: "userManager",
-    component: AboutView,
+    component: UserManagePage,
   },
 ];
 
