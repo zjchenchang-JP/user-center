@@ -8,7 +8,7 @@
 
 <script setup lang="ts">
 import BasicLayout from "@/layouts/BasicLayout.vue";
-import LoginView from "@/views/LoginView.vue";
+
 import { useLoginUserStore } from "@/store/useLoginUserStore";
 
 // 进入页面就会调用fetchLoginUser()方法 获取当前登录用户
