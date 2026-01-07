@@ -19,7 +19,7 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          用户中心 by CHEN CHANG
+          User Center by CHEN CHANG
         </a>
       </a-layout-footer>
     </a-layout>
