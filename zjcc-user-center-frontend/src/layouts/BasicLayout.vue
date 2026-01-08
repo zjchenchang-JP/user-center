@@ -54,7 +54,8 @@ getCurrentUser().then((res) => {
 }
 
 #basic-layout .content {
-  padding: 20px;
+  /* padding: 20px; */
+  padding-bottom: 80px; /* 高于 footer 高度 */
   margin-bottom: 20px;
   background: linear-gradient(to right, #fefefe, #fff);
 }
@@ -62,7 +63,28 @@ getCurrentUser().then((res) => {
 #basic-layout .header {
   padding-inline: 20px;
   background: white;
-  margin-bottom: 10px;
+  margin-bottom: 0px;
   color: unset;
+}
+
+.ant-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ant-layout-content {
+  flex: 1;
+  padding: 20px;
+  padding-bottom: 64px; /* 留出 footer 空间 */
+  margin-bottom: 0;
+}
+
+.footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
 }
 </style>

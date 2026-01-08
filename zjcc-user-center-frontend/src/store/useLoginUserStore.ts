@@ -1,4 +1,4 @@
-// 存放登录用户相关的pinia 数据
+// 存放登录用户相关的 pinia 数据
 // 1. 导入 Pinia 的核心方法 defineStore（用于定义仓库）
 import { defineStore } from "pinia";
 // 2. 导入 Vue 的响应式方法 ref（用于创建响应式数据）
