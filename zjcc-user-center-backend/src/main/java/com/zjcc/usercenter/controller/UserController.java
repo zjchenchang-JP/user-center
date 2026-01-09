@@ -22,7 +22,7 @@ import static com.zjcc.usercenter.utils.StaticConst.ADMIN_ROLE;
 import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 
 @RestController
-@CrossOrigin(origins = {"http://localhost:5173"},allowCredentials = "true") // 临时解决跨越问题
+@CrossOrigin(origins = {"http://localhost:5173"}, allowCredentials = "true") // 临时解决跨越问题
 @RequestMapping("/api/user")
 @Slf4j
 public class UserController {
@@ -40,11 +40,12 @@ public class UserController {
         String userPassword = userRegisterRequest.getUserPassword();
         String userAccount = userRegisterRequest.getUserAccount();
         String checkPassword = userRegisterRequest.getCheckPassword();
+        String planetCode = userRegisterRequest.getPlanetCode();
         // 参数不能为空
-        if (StringUtils.isAnyBlank(userPassword, userAccount, checkPassword)) {
+        if (StringUtils.isAnyBlank(userPassword, userAccount, checkPassword,planetCode)) {
             return null;
         }
-        return userService.userRegister(userAccount, userPassword, checkPassword);
+        return userService.userRegister(userAccount, userPassword, checkPassword,planetCode);
     }
 
     // 用户登录
@@ -77,6 +78,12 @@ public class UserController {
             return (User) stateUser;
         }
         return null;
+    }
+
+    // 用户注销
+    @PostMapping("/logout")
+    public Integer userLogout(HttpServletRequest request) {
+        return userService.userLogout(request);
     }
 
 

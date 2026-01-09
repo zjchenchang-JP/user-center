@@ -1,4 +1,5 @@
 package com.zjcc.usercenter.service.impl;
+
 import java.util.Date;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -15,32 +16,29 @@ import org.springframework.util.DigestUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 
+import static com.zjcc.usercenter.utils.StaticConst.SALT;
+import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
+
 
 /**
-* @author zjcc
-* @description 针对表【user(用户表)】的数据库操作Service实现
-* @createDate 2025-12-31 18:59:01
-*/
+ * @author zjcc
+ * @description 针对表【user(用户表)】的数据库操作Service实现
+ * @createDate 2025-12-31 18:59:01
+ */
 @Service
 @Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User>
-    implements UserService{
+        implements UserService {
 
     @Resource
     UserMapper userMapper;
 
-    // ^[a-zA-Z0-9_]+$ 表示从开头到结尾只能是大小写字母、数字或下划线的组合
+    // 正则表达式 ^[a-zA-Z0-9_]+$ 表示从开头到结尾只能是大小写字母、数字或下划线的组合
     String validPattern = "^[a-zA-Z0-9_]+$";
 
-    /**
-     * 用户注册
-     * @param userAccount 用户账户
-     * @param userPassword 用户密码
-     * @param checkPassword 确认密码
-     * @return 新用户id
-     */
+    // 用户注册
     @Override
-    public long userRegister(String userAccount, String userPassword, String checkPassword) {
+    public long userRegister(String userAccount, String userPassword, String checkPassword, String planetCode) {
         // 1.校验参数
         // 非null, 非空串
         if (StringUtils.isAnyBlank(userAccount, userPassword, checkPassword)) {
@@ -54,6 +52,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return -1;
         }
 
+        // 账户不包含特殊字符
+        if (!userAccount.matches(validPattern)) {
+            return -1;
+        }
+
+
         // 密码长度不小于8
         if (userPassword.length() < 8 || checkPassword.length() < 8) {
             return -1;
@@ -65,28 +69,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return -1;
         }
 
-        // 账户不包含特殊字符
-        if (!userAccount.matches(validPattern)) {
+        // 用户编号不能超过5位
+        if (planetCode.length() > 5) {
             return -1;
         }
 
         // 账户不能重复
-        // 有数据库查询操作，放到最后。性能优化
+        // 有数据库查询操作，放到校验流程的最后。性能优化
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("userAccount", userAccount);
         long count = this.count(queryWrapper);
-        if(count > 0) {
+        if (count > 0) {
             log.warn("账户不能重复");
             return -1;
         }
 
+        // 用户编号不能重复
+        queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("planetCode", planetCode);
+        count = this.count(queryWrapper);
+        if (count > 0) {
+            return -1;
+        }
+
         // 2.密码加密
-        String encryptPassword = DigestUtils.md5DigestAsHex((StaticConst.SALT + userPassword).getBytes());
+        String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+
 
         // 3.插入数据
         User user = new User();
         user.setUserAccount(userAccount);
         user.setUserPassword(encryptPassword);
+        user.setPlanetCode(planetCode);
         boolean saveResult = this.save(user);
         if (!saveResult) {
             return -1;
@@ -95,14 +109,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return user.getId();
     }
 
-    /**
-     * 登录方法
-     *
-     * @param userAccount  用户账户
-     * @param userPassword 用户密码
-     * @param request  servlet请求对象
-     * @return 已登录用户信息
-     */
+    // 用户登录
     @Override
     public User userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         // 1.校验参数
@@ -125,7 +132,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
         // 2.验证密码
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        String encryptPassword = DigestUtils.md5DigestAsHex((StaticConst.SALT + userPassword).getBytes());
+        String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
         queryWrapper.eq("userPassword", encryptPassword);
         queryWrapper.eq("userAccount", userAccount);
         User loginUser = userMapper.selectOne(queryWrapper);
@@ -135,17 +142,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return null;
         }
         // 3.记录session状态
-        request.getSession().setAttribute(StaticConst.USER_LOGIN_STATE, loginUser);
+        request.getSession().setAttribute(USER_LOGIN_STATE, loginUser);
 
         // 4. 返回脱敏用户
         return getSafetyUser(loginUser);
     }
 
+    // 注销方法
+    @Override
+    public int userLogout(HttpServletRequest request) {
+        if (request == null) {
+            return -1;
+        }
+        // 删除session 数据
+        request.getSession().removeAttribute(USER_LOGIN_STATE);
+        // 注销成功
+        return 1;
+    }
+
 
     /**
      * Desensitization 用户脱敏
+     *
      * @param loginUser 登录用户
-     * @return safetyUser
+     * @return safetyUser  信息脱敏后的用户
      */
     public static User getSafetyUser(User loginUser) {
         User safetyUser = new User();
@@ -159,6 +179,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         safetyUser.setUserStatus(loginUser.getUserStatus());
         safetyUser.setCreateTime(loginUser.getCreateTime());
         safetyUser.setUserRole(loginUser.getUserRole());
+        safetyUser.setPlanetCode(loginUser.getPlanetCode());
         return safetyUser;
     }
 }
