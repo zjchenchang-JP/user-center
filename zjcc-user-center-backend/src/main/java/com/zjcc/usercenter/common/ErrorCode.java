@@ -14,6 +14,7 @@ public enum ErrorCode {
     NULL_ERROR(40001, "请求数据为空", ""),
     NOT_LOGIN(40100, "未登录", ""),
     NO_AUTH(40101, "无权限", ""),
+    USER_DUPLICATE(40002,"用户不能重复",""),
     SYSTEM_ERROR(50000, "系统内部异常", "");
 
     /**

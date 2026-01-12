@@ -2,19 +2,19 @@ package com.zjcc.usercenter.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.sun.org.apache.bcel.internal.generic.NEW;
+import com.zjcc.usercenter.common.BaseResponse;
+import com.zjcc.usercenter.common.ResponseResult;
 import com.zjcc.usercenter.model.domain.User;
 import com.zjcc.usercenter.model.domain.UserLoginRequest;
 import com.zjcc.usercenter.model.domain.UserRegisterRequest;
 import com.zjcc.usercenter.service.UserService;
 import com.zjcc.usercenter.service.impl.UserServiceImpl;
-import com.zjcc.usercenter.utils.StaticConst;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,7 +32,7 @@ public class UserController {
 
     // 用户注册
     @PostMapping("/register")
-    public Long userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
+    public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
         // 请求体为空
         if (userRegisterRequest == null) {
             return null;
@@ -45,12 +45,13 @@ public class UserController {
         if (StringUtils.isAnyBlank(userPassword, userAccount, checkPassword,planetCode)) {
             return null;
         }
-        return userService.userRegister(userAccount, userPassword, checkPassword,planetCode);
+        long result = userService.userRegister(userAccount, userPassword, checkPassword, planetCode);
+        return ResponseResult.ok(result);
     }
 
     // 用户登录
     @PostMapping("/login")
-    public User userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
+    public BaseResponse<User> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
         System.out.println("===== 进入userLogin方法 ====="); // 新增日志
         // 请求体为空
         if (userLoginRequest == null) {
@@ -62,12 +63,13 @@ public class UserController {
         if (StringUtils.isAnyBlank(userPassword, userAccount)) {
             return null;
         }
-        return userService.userLogin(userAccount, userPassword, request);
+        User loginUser = userService.userLogin(userAccount, userPassword, request);
+        return ResponseResult.ok(loginUser);
     }
 
     // 获取当前用户
     @GetMapping("/current")
-    public User getCurrentUser(HttpServletRequest request) {
+    public BaseResponse<User> getCurrentUser(HttpServletRequest request) {
         // 从session获取当前登录用户
         Object stateUser = request.getSession().getAttribute(USER_LOGIN_STATE);
         // null 不是任何类型：stateUser instanceof User 在 stateUser 为 null 时会返回 false
@@ -75,15 +77,17 @@ public class UserController {
         // 条件不成立：当 stateUser 为 null 时，if (stateUser instanceof User) 条件为 false
         if (stateUser instanceof User) {
             // instanceof 检查通过，已确保 stateUser 不为 null
-            return (User) stateUser;
+            User curremtUser = (User) stateUser;
+            return ResponseResult.ok(curremtUser);
         }
         return null;
     }
 
     // 用户注销
     @PostMapping("/logout")
-    public Integer userLogout(HttpServletRequest request) {
-        return userService.userLogout(request);
+    public BaseResponse<Integer> userLogout(HttpServletRequest request) {
+        int result = userService.userLogout(request);
+        return ResponseResult.ok(result);
     }
 
 
@@ -92,10 +96,12 @@ public class UserController {
      */
     // 查询所有用户
     @GetMapping("/search")
-    public List<User> searchUser(String username, HttpServletRequest request) {
+    public BaseResponse<List<User>>  searchUser(String username, HttpServletRequest request) {
         if (!isAdmin(request)) {
             log.warn("缺少管理员权限!");
-            return new ArrayList<>();
+            // TODO 全局异常处理
+            // return new ArrayList<>();
+            return null;
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         if (StringUtils.isNotBlank(username)) {
@@ -105,17 +111,18 @@ public class UserController {
         List<User> userList = userService.list(queryWrapper);
         // 脱敏后返回
         List<User> users = userList.stream().map(UserServiceImpl::getSafetyUser).collect(Collectors.toList());
-        return users;
+        return ResponseResult.ok(users);
     }
 
     // 删除用户
     @DeleteMapping("/delete")
-    public boolean deleteUser(@RequestBody User user, HttpServletRequest request) {
+    public BaseResponse<Boolean> deleteUser(@RequestBody Long id, HttpServletRequest request) {
         if (!isAdmin(request)) {
             log.warn("缺少管理员权限");
-            return false;
+            return null;
         }
-        return userService.removeById(user);
+        boolean b = userService.removeById(id);
+        return ResponseResult.ok(b);
     }
 
 
@@ -134,5 +141,4 @@ public class UserController {
         // 类型转换失败 或 stateUser = null
         return false;
     }
-
 }
