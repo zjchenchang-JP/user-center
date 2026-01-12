@@ -14,7 +14,14 @@ public enum ErrorCode {
     NULL_ERROR(40001, "请求数据为空", ""),
     NOT_LOGIN(40100, "未登录", ""),
     NO_AUTH(40101, "无权限", ""),
-    USER_DUPLICATE(40002,"用户不能重复",""),
+    USER_DUPLICATE(40002, "用户账户已存在", ""),
+    USER_ACCOUNT_INVALID(40003, "用户账户包含特殊字符，不合法", ""),
+    USER_PASSWORD_SHORT(40004, "用户密码长度不能小于8位", ""),
+    PASSWORD_NOT_MATCH(40005, "两次输入密码不一致", ""),
+    PLANET_CODE_TOO_LONG(40006, "用户编号长度不能超过5位", ""),
+    PLANET_CODE_DUPLICATE(40007, "星球编号已存在", ""),
+    USER_SAVE_FAILED(40008, "用户信息保存失败", ""),
+    USER_ACCOUNT_SHORT(40009, "账户长度不能小于4位", ""),
     SYSTEM_ERROR(50000, "系统内部异常", "");
 
     /**

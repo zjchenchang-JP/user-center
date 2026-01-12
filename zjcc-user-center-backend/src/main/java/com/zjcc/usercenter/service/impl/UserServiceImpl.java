@@ -4,10 +4,11 @@ import java.util.Date;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.zjcc.usercenter.common.ErrorCode;
+import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.User;
 import com.zjcc.usercenter.service.UserService;
 import com.zjcc.usercenter.mapper.UserMapper;
-import com.zjcc.usercenter.utils.StaticConst;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -16,8 +17,7 @@ import org.springframework.util.DigestUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 
-import static com.zjcc.usercenter.utils.StaticConst.SALT;
-import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
+import static com.zjcc.usercenter.utils.StaticConst.*;
 
 
 /**
@@ -33,63 +33,76 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Resource
     UserMapper userMapper;
 
-    // 正则表达式 ^[a-zA-Z0-9_]+$ 表示从开头到结尾只能是大小写字母、数字或下划线的组合
-    String validPattern = "^[a-zA-Z0-9_]+$";
-
     // 用户注册
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword, String planetCode) {
         // 1.校验参数
         // 非null, 非空串
         if (StringUtils.isAnyBlank(userAccount, userPassword, checkPassword)) {
-            log.warn("账户密码不能为空！");
-            // TODO 修改为全局自定义异常
-            return -1;
+            log.warn("用户注册参数非空校验失败，账户：{}，密码：{}，确认密码：{}，星球编号：{}",
+                    userAccount, userPassword, checkPassword, planetCode);
+            // 全局自定义异常
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
 
         // 账户长度不小于4
         if (userAccount.length() < 4) {
-            return -1;
+            log.warn("用户账户长度小于4位：{}", userAccount);
+            throw new BusinessException(ErrorCode.USER_ACCOUNT_SHORT);
         }
 
         // 账户不包含特殊字符
-        if (!userAccount.matches(validPattern)) {
-            return -1;
+        if (!userAccount.matches(VALID_PATTERN)) {
+            log.warn("用户账户包含特殊字符，不合法：{}", userAccount);
+            throw new BusinessException(ErrorCode.USER_ACCOUNT_INVALID);
         }
 
 
         // 密码长度不小于8
         if (userPassword.length() < 8 || checkPassword.length() < 8) {
-            return -1;
+            log.warn("用户密码长度小于8位");
+            throw new BusinessException(ErrorCode.USER_PASSWORD_SHORT);
         }
 
         // 密码和确认密码必须相同
         if (!userPassword.equals(checkPassword)) {
-            log.warn("密码和确认密码必须相同");
-            return -1;
+            log.warn("两次输入密码不一致");
+            throw new BusinessException(ErrorCode.PASSWORD_NOT_MATCH);
         }
 
         // 用户编号不能超过5位
         if (planetCode.length() > 5) {
-            return -1;
+            log.warn("星球编号长度超过5位");
+            throw new BusinessException(ErrorCode.PLANET_CODE_TOO_LONG);
         }
 
-        // 账户不能重复
-        // 有数据库查询操作，放到校验流程的最后。性能优化
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userAccount", userAccount);
-        long count = this.count(queryWrapper);
-        if (count > 0) {
-            log.warn("账户不能重复");
-            return -1;
-        }
+        // 账户不能重复 唯一性校验
+        // // 有数据库查询操作，放到校验流程的最后。性能优化
+        // QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // queryWrapper.eq("userAccount", userAccount);
+        // long count = this.count(queryWrapper);
+        // if (count > 0) {
+        //     log.warn("账户不能重复");
+        //     return -1;
+        // }
+        //
+        // // 用户编号不能重复
+        // queryWrapper = new QueryWrapper<>();
+        // queryWrapper.eq("planetCode", planetCode);
+        // count = this.count(queryWrapper);
+        // if (count > 0) {
+        //     return -1;
+        // }
 
-        // 用户编号不能重复
-        queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("planetCode", planetCode);
-        count = this.count(queryWrapper);
-        if (count > 0) {
-            return -1;
+        // 唯一性校验 优化 只查询一次数据库
+        // 合并查询，一次数据库IO，统一异常提示
+        long duplicateCount = this.count(new QueryWrapper<User>()
+                .or()
+                .eq("userAccount", userAccount)
+                .eq("planetCode", planetCode));
+        if (duplicateCount > 0) {
+            log.warn("用户注册参数重复，账户：{}，星球编号：{}", userAccount, planetCode);
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户账户或星球编号已存在");
         }
 
         // 2.密码加密
@@ -103,9 +116,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setPlanetCode(planetCode);
         boolean saveResult = this.save(user);
         if (!saveResult) {
-            return -1;
+            log.error("用户信息保存失败，账户：{}", userAccount);
+            throw new BusinessException(ErrorCode.USER_SAVE_FAILED);
         }
-        // 代码到这 说明注册并插入成功
+        // 注册成功，返回用户ID
         return user.getId();
     }
 
@@ -128,7 +142,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
 
         // 账户不包含特殊字符
-        if (!userAccount.matches(validPattern)) return null;
+        if (!userAccount.matches(VALID_PATTERN)) return null;
 
         // 2.验证密码
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();

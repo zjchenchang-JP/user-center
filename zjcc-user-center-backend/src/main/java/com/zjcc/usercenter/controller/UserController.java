@@ -1,9 +1,10 @@
 package com.zjcc.usercenter.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.sun.org.apache.bcel.internal.generic.NEW;
 import com.zjcc.usercenter.common.BaseResponse;
+import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
+import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.User;
 import com.zjcc.usercenter.model.domain.UserLoginRequest;
 import com.zjcc.usercenter.model.domain.UserRegisterRequest;
@@ -33,18 +34,15 @@ public class UserController {
     // 用户注册
     @PostMapping("/register")
     public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
-        // 请求体为空
+        // 仅做请求体非空判断（避免后续获取属性空指针）
         if (userRegisterRequest == null) {
-            return null;
+            throw new BusinessException(ErrorCode.NULL_ERROR);
         }
         String userPassword = userRegisterRequest.getUserPassword();
         String userAccount = userRegisterRequest.getUserAccount();
         String checkPassword = userRegisterRequest.getCheckPassword();
         String planetCode = userRegisterRequest.getPlanetCode();
-        // 参数不能为空
-        if (StringUtils.isAnyBlank(userPassword, userAccount, checkPassword,planetCode)) {
-            return null;
-        }
+
         long result = userService.userRegister(userAccount, userPassword, checkPassword, planetCode);
         return ResponseResult.ok(result);
     }
