@@ -129,31 +129,39 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 1.校验参数
         if (StringUtils.isAnyBlank(userAccount, userPassword)) {
             log.warn("账户密码不能为空！");
-            return null;
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         // 账户长度不小于4
         if (userAccount.length() < 4) {
-            return null;
+            log.warn("用户账户长度小于4位：{}", userAccount);
+            throw new BusinessException(ErrorCode.USER_ACCOUNT_SHORT);
         }
 
         // 密码长度不小于8
         if (userPassword.length() < 8) {
-            return null;
+            log.warn("用户密码长度小于8位");
+            throw new BusinessException(ErrorCode.USER_PASSWORD_SHORT);
         }
 
         // 账户不包含特殊字符
-        if (!userAccount.matches(VALID_PATTERN)) return null;
+        if (!userAccount.matches(VALID_PATTERN)) throw new BusinessException(ErrorCode.USER_ACCOUNT_INVALID);
 
-        // 2.验证密码
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
-        queryWrapper.eq("userPassword", encryptPassword);
-        queryWrapper.eq("userAccount", userAccount);
-        User loginUser = userMapper.selectOne(queryWrapper);
-        // User loginUser = this.getOne(queryWrapper);
+        //  第一步：先根据用户账户查询用户（仅查询账户，不涉及密码）
+        QueryWrapper<User> accountQueryWrapper = new QueryWrapper<>();
+        accountQueryWrapper.eq("userAccount", userAccount);
+        User loginUser = userMapper.selectOne(accountQueryWrapper);
+
+        // 判断账户是否存在
         if (loginUser == null) {
-            log.warn("user login failed, useAccount cannot match userPassword");
-            return null;
+            log.warn("user login failed, userAccount [{}] does not exist", userAccount);
+            throw new BusinessException(ErrorCode.USER_ACCOUNT_NOT_EXIST); // 对外提示可模糊，内部日志明确
+        }
+
+        // 3. 第二步：账户存在时，单独验证密码
+        String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+        if (!encryptPassword.equals(loginUser.getUserPassword())) {
+            log.warn("user login failed, userAccount [{}] password is incorrect", userAccount);
+            throw new BusinessException(ErrorCode.ACCOUNT_OR_PASSWORD_ERROR); // 对外可模糊提示，避免泄露密码错误细节
         }
         // 3.记录session状态
         request.getSession().setAttribute(USER_LOGIN_STATE, loginUser);

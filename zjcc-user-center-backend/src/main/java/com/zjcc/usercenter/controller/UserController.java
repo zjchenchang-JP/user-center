@@ -50,17 +50,13 @@ public class UserController {
     // 用户登录
     @PostMapping("/login")
     public BaseResponse<User> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
-        System.out.println("===== 进入userLogin方法 ====="); // 新增日志
+        // System.out.println("===== 进入userLogin方法 ====="); // 新增日志
         // 请求体为空
         if (userLoginRequest == null) {
-            return null;
+            throw new BusinessException(ErrorCode.NULL_ERROR);
         }
         String userPassword = userLoginRequest.getUserPassword();
         String userAccount = userLoginRequest.getUserAccount();
-        // 参数不能为空
-        if (StringUtils.isAnyBlank(userPassword, userAccount)) {
-            return null;
-        }
         User loginUser = userService.userLogin(userAccount, userPassword, request);
         return ResponseResult.ok(loginUser);
     }
