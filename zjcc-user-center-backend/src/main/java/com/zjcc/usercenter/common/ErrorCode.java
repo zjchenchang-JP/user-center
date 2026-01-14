@@ -24,6 +24,7 @@ public enum ErrorCode {
     USER_ACCOUNT_SHORT(40009, "账户长度不能小于4位", ""),
     USER_ACCOUNT_NOT_EXIST(40010, "账号不存在，请先注册", ""),
     ACCOUNT_OR_PASSWORD_ERROR(40011, "账户或密码错误", ""),
+    LOGOUT_FAILED(40012,"注销失败",""),
     SYSTEM_ERROR(50000, "系统内部异常", "");
 
     /**

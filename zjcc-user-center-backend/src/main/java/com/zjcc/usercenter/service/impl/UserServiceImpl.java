@@ -16,6 +16,7 @@ import org.springframework.util.DigestUtils;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 
 import static com.zjcc.usercenter.utils.StaticConst.*;
 
@@ -173,9 +174,28 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     // 注销方法
     @Override
     public int userLogout(HttpServletRequest request) {
-        if (request == null) {
-            return -1;
-        }
+        // TODO
+        // try {
+        //     HttpSession session = request.getSession(false);
+        //     // 场景1：会话不存在（容器都没有）
+        //     if (session == null) {
+        //         return UserOperateResultEnum.SESSION_NOT_EXIST;
+        //     }
+        //     // 场景2：会话存在，但无登录属性（容器有，无目标数据）
+        //     Object loginState = session.getAttribute(USER_LOGIN_STATE);
+        //     if (loginState == null) {
+        //         return UserOperateResultEnum.USER_NOT_LOGIN;
+        //     }
+        //     // 场景3：会话存在且有登录属性，正常注销
+        //     session.removeAttribute(USER_LOGIN_STATE);
+        //     // 可选：若无需保留会话其他数据，可销毁整个会话
+        //     // session.invalidate();
+        //     return UserOperateResultEnum.LOGOUT_SUCCESS;
+        // } catch (Exception e) {
+        //     // log.error("用户注销业务处理失败，异常信息：", e);
+        //     return UserOperateResultEnum.LOGOUT_FAILED;
+        // }
+
         // 删除session 数据
         request.getSession().removeAttribute(USER_LOGIN_STATE);
         // 注销成功
