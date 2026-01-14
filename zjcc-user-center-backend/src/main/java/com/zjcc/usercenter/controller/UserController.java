@@ -74,7 +74,7 @@ public class UserController {
             User curremtUser = (User) stateUser;
             return ResponseResult.ok(curremtUser);
         }
-        return null;
+        throw new BusinessException(ErrorCode.NOT_LOGIN);
     }
 
     // 用户注销
