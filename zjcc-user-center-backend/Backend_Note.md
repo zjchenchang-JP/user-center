@@ -99,3 +99,133 @@ log.warn("用户注册参数非空校验失败，账户：{}，密码：{}，确
 1.  `warn` 用于记录「业务预期内异常，不影响系统运行」，`error` 用于记录「系统非预期异常，影响系统运行」；
 2.  用户注册参数校验失败是业务异常，用 `warn` 可避免告警噪音、便于日志筛选，符合行业规范；
 3.  日志级别的选择核心，是「匹配问题的严重程度」，而非「只要有错误就用 `error`」。
+
+# 2026/01/20
+## 后端解决跨域问题四种方式
+CorsFilter / WebMvcConfigurer / @CrossOrigin 需要SpringMVC 4.2 以上的版本才支持，对应SpringBoot 1.3 版本以上都支持这些CORS特性。
+不过，使用SpringMVC4.2 以下版本，直接使用方式4通过手工添加响应头来授权CORS跨域访问也是可以的。
+### 方式1：返回新的CorsFilter
+```java
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
+
+/**
+ * 跨域资源共享(CORS)配置类
+ * 同域名 / 端口 / 协议  => 有一个不同就是跨域
+ * 用于解决前后端分离架构中，浏览器的同源策略限制导致的跨域请求问题
+ */
+@Configuration  // 标记该类为Spring的配置类，会被Spring容器扫描并加载
+public class CorsConfig {
+
+    /**
+     * 构建CORS配置信息对象
+     * 封装所有跨域相关的配置规则
+     * @return 配置完成的CorsConfiguration对象
+     */
+    private CorsConfiguration buildConfig() {
+        // 创建CORS配置对象，用于存储跨域配置规则
+        CorsConfiguration corsConfiguration = new CorsConfiguration();
+
+        // 允许所有来源的跨域请求（生产环境建议指定具体域名，如https://your-frontend.com）
+        // * 表示通配符，允许任何域名访问
+        corsConfiguration.addAllowedOrigin("*");
+
+        // 允许所有请求头（如Content-Type、Authorization等）
+        corsConfiguration.addAllowedHeader("*");
+
+        // 允许所有HTTP请求方法（GET、POST、PUT、DELETE、OPTIONS等）
+        corsConfiguration.addAllowedMethod("*");
+
+        // 设置预检请求（OPTIONS）的缓存时间，单位秒
+        // 3600秒内同一请求不需要重复发送预检请求，提升性能
+        corsConfiguration.setMaxAge(3600L);
+
+        // 允许跨域请求携带Cookie等凭证信息
+        // 注意：如果设置为true，addAllowedOrigin不能使用*，必须指定具体域名
+        // 生产环境中需要将 addAllowedOrigin("*") 改为具体的前端域名
+        // 例如：corsConfiguration.addAllowedOrigin("https://www.example.com")；如果需要允许多个域名，可以多次调用 addAllowedOrigin 方法
+        // 允许 example.com 下的所有子域名
+        // corsConfiguration.addAllowedOriginPattern("https://*.example.com");
+        // 或者 corsConfiguration.addAllowedOriginPattern("*"); // 支持通配符且兼容allowCredentials=true
+        corsConfiguration.setAllowCredentials(true);
+
+        // 返回配置好的CORS配置对象
+        return corsConfiguration;
+    }
+
+    /**
+     * 注册CORS过滤器Bean
+     * Spring会自动将该过滤器加入到请求处理链中
+     * @return CorsFilter 跨域过滤器
+     */
+    @Bean  // 将方法返回的对象注册为Spring容器中的Bean
+    public CorsFilter corsFilter() {
+        // 创建基于URL的CORS配置源对象
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+
+        // 为所有URL路径（/**）注册上面构建的CORS配置
+        // /** 表示匹配应用中所有的请求路径
+        source.registerCorsConfiguration("/**", buildConfig());
+
+        // 创建并返回CORS过滤器，传入配置源
+        return new CorsFilter(source);
+    }
+}
+```
+>/*	匹配当前层级的所有路径（仅一层），无法匹配子层级	/user、/order、/api	/user/123、/api/v1/login
+
+>/** 匹配所有层级的所有路径（任意层），包括当前层和所有子层级	/user、/user/123、/api/v1
+### 方式2：重写WebMvcConfigurer
+```java
+
+@Configuration
+public class WebMvcConfg implements WebMvcConfigurer {
+ 
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        //设置允许跨域的路径
+        registry.addMapping("/**")
+                //设置允许跨域请求的域名
+                //当**Credentials为true时，**Origin不能为星号，需为具体的ip地址【如果接口不带cookie,ip无需设成具体ip】
+                .allowedOrigins("http://localhost:9527", "http://127.0.0.1:9527", "http://127.0.0.1:8082", "http://127.0.0.1:8083")
+                //是否允许证书 不再默认开启
+                .allowCredentials(true)
+                //设置允许的方法
+                .allowedMethods("*")
+                //跨域允许时间
+                .maxAge(3600);
+    }
+}
+```
+### 方式3：使用注解（@CrossOrigin）
+```java
+@Controller
+@RequestMapping("/admin/sysLog")
+// @CrossOrigin 什么参数也不写 = 默认配置：允许所有源、所有请求方法、所有请求头，预检缓存30分钟
+// 等价于下面
+@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {}, maxAge = 1800)
+public class SysLogController {
+}
+```
+```java
+// 仅允许前端域名访问，允许携带凭证，限定请求方法
+@CrossOrigin(
+    originPatterns = {"http://localhost:8080", "https://*.example.com"}, // 支持通配符
+    allowCredentials = true, // 允许携带Cookie
+    methods = {RequestMethod.GET, RequestMethod.POST}, // 仅允许GET/POST
+    maxAge = 3600 // 预检缓存1小时
+)
+```
+### 方式4：手工设置响应头（HttpServletResponse ）
+这种方式，可以自己手工加到具体的controller，inteceptor，filter等逻辑里
+```java
+@RequestMapping("/test")
+@ResponseBody
+public String test(){
+    response.addHeader("Access-Control-Allow-Origin", "http://localhost:8080");
+    return "success";
+}
+```
