@@ -36,7 +36,7 @@ const routes: Array<RouteRecordRaw> = [
     name: "register",
     // 动态导入(懒加载) 非首页、低频访问组件（如用户注册、用户管理）
     // 优化首屏加载性能，减少初始打包体积
-    component: () => import("../views/AboutView.vue"),
+    component: () => import("../pages/user/UserRegisterPage.vue"),
   },
   {
     path: "/admin/userManage",

@@ -38,7 +38,7 @@
         />
       </a-form-item>
       <a-form-item :wrapper-col="{ offset: 4, span: 20 }">
-        <a-button type="primary" html-type="submit">登录</a-button>
+        <a-button type="primary" html-type="submit">登録</a-button>
       </a-form-item>
     </a-form>
   </div>
@@ -77,31 +77,31 @@ interface FormState {
   userAccount: string;
   userPassword: string;
 }
-// 定义响应式表单数据
+// 定义响应式表单数据, 方便接受表单输入的值
 const formState = reactive<FormState>({
   userAccount: "",
   userPassword: "",
 });
 
 const loginUserStore = useLoginUserStore();
-const router = useRouter()
+const router = useRouter();
 // 提交表单
 const onSubmit = async (values: any) => {
   const res = await userLogin(values);
   // 登录成功 把登录用户状态保存到全局状态 Pinia 中
   if (res.data.code === 0 && res.data.data) {
     await loginUserStore.fetchLoginUser();
-    message.success("登录成功")
+    message.success("登录成功");
     // 登录成功后跳转到首页
     // window.location.href = "/";
+    // 等价于 router.replace("/")
     router.push({
       path: "/",
       replace: true,
     });
-  } 
-  // else {
-  //   message.error
-  // }
+  } else {
+    message.error("登录失败!");
+  }
 };
 const onFinishFailed = (errorInfo: any) => {
   console.log("Failed:", errorInfo);

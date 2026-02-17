@@ -9,3 +9,4 @@
 # .idea config file
 .idea/
 node_modules/
+.vscode

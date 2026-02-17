@@ -96,7 +96,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // }
 
         // 唯一性校验 优化 只查询一次数据库
-        // 合并查询，一次数据库IO，统一异常提示
+        // 合并查询，只一次数据库IO，统一异常提示
         long duplicateCount = this.count(new QueryWrapper<User>()
                 .or()
                 .eq("userAccount", userAccount)
@@ -118,6 +118,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         boolean saveResult = this.save(user);
         if (!saveResult) {
             log.error("用户信息保存失败，账户：{}", userAccount);
+            // TODO 此处应该判断幂等？？
             throw new BusinessException(ErrorCode.USER_SAVE_FAILED);
         }
         // 注册成功，返回用户ID
