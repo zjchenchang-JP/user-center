@@ -53,9 +53,7 @@
       <a-form-item
         label="编号"
         name="planetCode"
-        :rules="[
-          { required: true, message: 'Please input your planetCode!' }
-        ]"
+        :rules="[{ required: true, message: 'Please input your planetCode!' }]"
       >
         <a-input-password
           v-model:value="formState.planetCode"
@@ -98,12 +96,12 @@ const onSubmit = async () => {
     message.error("两次输入的密码不一致");
     return;
   }
-  const res = await userRegister(formState)
+  const res = await userRegister(formState);
   // 注册成功 跳转到登录界面
   if (res.data.code === 0 && res.data.data) {
     message.success("注册成功");
     router.push({
-      path:"/user/login",
+      path: "/user/login",
       replace: true,
     });
   } else {

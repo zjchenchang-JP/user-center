@@ -103,6 +103,7 @@ public class UserController {
             queryWrapper.like("username", username);
         }
         List<User> userList = userService.list(queryWrapper);
+        // TODO 全查询后 应该添加分页机制
         // 脱敏后返回
         List<User> users = userList.stream().map(UserServiceImpl::getSafetyUser).collect(Collectors.toList());
         return ResponseResult.ok(users);
