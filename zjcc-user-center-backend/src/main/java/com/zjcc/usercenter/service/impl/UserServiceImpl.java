@@ -206,7 +206,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     /**
      * Desensitization 用户脱敏
-     *
      * @param loginUser 登录用户
      * @return safetyUser  信息脱敏后的用户
      */

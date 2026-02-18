@@ -20,7 +20,7 @@
         <div class="user-login-status">
           <!-- 如果登录了，则展示登录用户名 如果没有用户名则给一个默认值“无名” -->
           <div v-if="loginUserStore.loginUser.id">
-            {{ loginUserStore.loginUser.username ?? "无名" }}
+            {{ loginUserStore.loginUser.username || "无名" }}
           </div>
           <!-- 如果没登录，则展示登录按钮 -->
           <div v-else>
