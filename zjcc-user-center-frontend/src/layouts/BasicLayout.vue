@@ -33,10 +33,10 @@ import { getCurrentUser, searchUsers } from "@/api/user";
 // TODO 测试代码-请求发送 前后端联动
 // 异步函数返回 Promise → 用 then 方法监听 Promise 成功状态 → 箭头函数接收并处理成功结果。
 // then 核心：专门处理 Promise 成功状态，接收异步操作结果，支持链式调用。
-getCurrentUser().then((res) => {
-  console.log(res);
-});
-</script>
+// getCurrentUser().then((res) => {
+//   console.log(res);
+// });
+// </script>
 <!--
   background-color: #efefef; 背景灰色
   text-align: 文本对齐方式

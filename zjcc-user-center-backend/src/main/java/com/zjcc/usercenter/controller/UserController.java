@@ -95,7 +95,7 @@ public class UserController {
             log.warn("缺少管理员权限!");
             // TODO 全局异常处理
             // return new ArrayList<>();
-            return null;
+            return ResponseResult.error(ErrorCode.NO_AUTH);
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         if (StringUtils.isNotBlank(username)) {
@@ -110,7 +110,7 @@ public class UserController {
     }
 
     // 删除用户
-    @DeleteMapping("/delete")
+    @PostMapping("/delete")
     public BaseResponse<Boolean> deleteUser(@RequestBody Long id, HttpServletRequest request) {
         if (!isAdmin(request)) {
             log.warn("缺少管理员权限");
@@ -133,7 +133,11 @@ public class UserController {
             User currentUser = (User) stateUser;
             return ADMIN_ROLE == (currentUser.getUserRole());
         }
-        // 类型转换失败 或 stateUser = null
-        return false;
+        // 类型转换失败
+        if (stateUser != null) {
+            return false;
+        }
+        // stateUser = null 未登录
+        throw new BusinessException(ErrorCode.NOT_LOGIN);
     }
 }
