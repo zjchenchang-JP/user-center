@@ -1,34 +1,34 @@
 <template>
   <div>
     <a-input-search
-      style="max-width: 300px; margin-bottom: 20px; margin-left: 73%;"
+      style="max-width: 300px; margin-bottom: 20px; margin-left: 73%"
       v-model:value="searchValue"
       placeholder="搜索用户名"
       enter-button="Search"
       size="large"
       @search="onSearch"
     />
-  <a-table :columns="columns" :data-source="data">
-    <template #bodyCell="{ column, record }">
-      <template v-if="column.dataIndex === 'avatarUrl'">
-        <a-image :src="record.avatarUrl" :width="100" />
+    <a-table :columns="columns" :data-source="data">
+      <template #bodyCell="{ column, record }">
+        <template v-if="column.dataIndex === 'avatarUrl'">
+          <a-image :src="record.avatarUrl" :width="100" />
+        </template>
+        <template v-else-if="column.dataIndex === 'userRole'">
+          <div v-if="record.userRole === 1">
+            <a-tag color="green">管理员</a-tag>
+          </div>
+          <div v-else>
+            <a-tag color="blue">普通用户</a-tag>
+          </div>
+        </template>
+        <template v-else-if="column.dataIndex === 'createTime'">
+          {{ dayjs(record.createTime).format("YYYY-MM-DD HH:mm:ss") }}
+        </template>
+        <template v-else-if="column.key === 'action'">
+          <a-button danger @click="doDelete(record.id)">删除</a-button>
+        </template>
       </template>
-      <template v-else-if="column.dataIndex === 'userRole'">
-        <div v-if="record.userRole === 1">
-          <a-tag color="green">管理员</a-tag>
-        </div>
-        <div v-else>
-          <a-tag color="blue">普通用户</a-tag>
-        </div>
-      </template>
-      <template v-else-if="column.dataIndex === 'createTime'">
-        {{ dayjs(record.createTime).format("YYYY-MM-DD HH:mm:ss") }}
-      </template>
-      <template v-else-if="column.key === 'action'">
-        <a-button danger @click="doDelete(record.id)">删除</a-button>
-      </template>
-    </template>
-  </a-table>
+    </a-table>
   </div>
 </template>
 <script lang="ts" setup>
@@ -39,22 +39,24 @@ import { reactive, ref } from "vue";
 import dayjs from "dayjs";
 const searchValue = ref();
 // 搜索按钮触发
-const onSearch = () =>{
+const onSearch = () => {
   fetchData(searchValue.value);
-}
+};
 
 // 删除
-const doDelete = async (id:string) =>{
-  if(!id){
-    return
+const doDelete = async (id: string) => {
+  if (!id) {
+    return;
   }
   const res = await deleteUser(id);
   if (res.data.code === 0) {
-    message.success("删除成功")
+    message.success("删除成功");
+    // 下面代码修复：删除了页面不变化 手动刷新才变化
+    data.value = data.value.filter((item) => item.id !== id)
   } else {
-    message.error("删除失败")
+    message.error("删除失败");
   }
-}
+};
 
 const columns = [
   {
@@ -92,7 +94,8 @@ const columns = [
 ];
 
 // 数据来源
-const data = ref([]);
+// 空数组被推断为 never[] 类型
+const data = ref<any[]>([]);
 
 // 获取数据
 const fetchData = async (username = "") => {

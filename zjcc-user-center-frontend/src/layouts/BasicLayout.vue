@@ -36,7 +36,8 @@ import { getCurrentUser, searchUsers } from "@/api/user";
 // getCurrentUser().then((res) => {
 //   console.log(res);
 // });
-// </script>
+//
+</script>
 <!--
   background-color: #efefef; 背景灰色
   text-align: 文本对齐方式
