@@ -90,12 +90,10 @@ public class UserController {
      */
     // 查询所有用户
     @GetMapping("/search")
-    public BaseResponse<List<User>>  searchUser(String username, HttpServletRequest request) {
+    public BaseResponse<List<User>> searchUser(String username, HttpServletRequest request) {
         if (!isAdmin(request)) {
             log.warn("缺少管理员权限!");
-            // TODO 全局异常处理
-            // return new ArrayList<>();
-            return ResponseResult.error(ErrorCode.NO_AUTH);
+            throw new BusinessException(ErrorCode.NO_AUTH);
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         if (StringUtils.isNotBlank(username)) {
@@ -114,7 +112,7 @@ public class UserController {
     public BaseResponse<Boolean> deleteUser(@RequestBody Long id, HttpServletRequest request) {
         if (!isAdmin(request)) {
             log.warn("缺少管理员权限");
-            return null;
+            throw new BusinessException(ErrorCode.NO_AUTH);
         }
         boolean b = userService.removeById(id);
         return ResponseResult.ok(b);

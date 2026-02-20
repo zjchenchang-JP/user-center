@@ -78,8 +78,9 @@ import Antd from "ant-design-vue";
 import "ant-design-vue/dist/reset.css";
 // 引入全局状态管理组件
 import { createPinia } from "pinia";
-
 const pinia = createPinia();
-
 // 第三步：创建并挂载 Vue 应用
-createApp(App).use(pinia).use(Antd).use(router).mount("#app");
+const app = createApp(App).use(pinia).use(Antd).use(router);
+import "./access";
+app.mount("#app");
+
