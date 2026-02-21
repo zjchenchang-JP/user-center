@@ -16,11 +16,13 @@
           @click="doMenuClick"
         />
       </a-col>
-      <a-col flex="80px">
+      <a-col flex="120px">
         <div class="user-login-status">
           <!-- 如果登录了，则展示登录用户名 如果没有用户名则给一个默认值“无名” -->
-          <div v-if="loginUserStore.loginUser.id">
-            {{ loginUserStore.loginUser.username || "无名" }}
+          <!-- 如果登录了，则展示登录用户名和登出按钮 -->
+           <div v-if="loginUserStore.loginUser.id" class="user-info">
+           <span class="username">{{ loginUserStore.loginUser.username || "无名" }}</span>
+               <a-button type="link" @click="doLogout" class="logout-btn">登出</a-button>
           </div>
           <!-- 如果没登录，则展示登录按钮 -->
           <div v-else>
@@ -39,7 +41,7 @@ import {
   CrownOutlined,
   SettingOutlined,
 } from "@ant-design/icons-vue";
-import { MenuProps } from "ant-design-vue";
+import { MenuProps, message } from "ant-design-vue";
 // Vue: Parameter 'to' implicitly has an any type 错误，是 TypeScript 的类型检查提示
 // 核心原因是：在使用 router.afterEach 时，参数 to、from 没有显式声明类型，TypeScript 无法推断其类型，默认将其视为 any 类型（项目开启了 noImplicitAny 配置，禁止隐式 any 类型）
 // RouteLocationNormalized 是什么？
@@ -47,6 +49,7 @@ import { MenuProps } from "ant-design-vue";
 // 它是 to、from 参数的标准类型。
 import { useRouter, RouteLocationNormalized as Route } from "vue-router";
 import { useLoginUserStore } from "@/store/useLoginUserStore";
+import { userLogout } from "@/api/user";
 
 const loginUserStore = useLoginUserStore();
 
@@ -57,6 +60,15 @@ const doMenuClick = ({ key }: { key: string }) => {
     path: key,
   });
 };
+// 登出功能
+const doLogout = async () =>{
+  const res = await userLogout({});
+  if (res.data.code === 0){
+    loginUserStore.loginUser = {};// 清除登录状态
+    message.success("登出成功")
+    router.push("/user/login")
+  }
+}
 
 const current = ref<string[]>(["home"]);
 // 保障刷新页面后菜单会根据 current 选中项高亮

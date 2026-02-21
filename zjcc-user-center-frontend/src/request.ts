@@ -36,7 +36,7 @@ myAxios.interceptors.request.use(
     // 处理请求配置错误（如打印错误日志、隐藏加载动画等）
     // 返回 Promise.reject(error)：将错误向下传递，便于后续业务代码捕获处理
     return Promise.reject(error);
-  }
+  },
 );
 
 // Add a response interceptor
@@ -89,7 +89,7 @@ myAxios.interceptors.response.use(
     // 示例3：处理 404（资源不存在）、500（服务器内部错误）等特定状态码
     // 返回 Promise.reject(error)：将错误向下传递，便于业务代码通过 .catch() 捕获
     return Promise.reject(error);
-  }
+  },
 );
 // 5. 导出自定义的 axios 实例 myAxios
 // 其他业务文件可通过 import myAxios from '@/utils/request'（路径别名）引入并使用

@@ -81,6 +81,14 @@ import { createPinia } from "pinia";
 const pinia = createPinia();
 // 第三步：创建并挂载 Vue 应用
 const app = createApp(App).use(pinia).use(Antd).use(router);
+//  为什么顺序很重要？
+// access.ts 中调用了 useLoginUserStore()
+//  const loginUserStore = useLoginUserStore();
+// useLoginUserStore 内部需要访问已经安装的 Pinia 实例
+// 如果 Pinia 还没安装，会报错：getActivePinia() 调用失败
+
 import "./access";
 app.mount("#app");
+
+
 

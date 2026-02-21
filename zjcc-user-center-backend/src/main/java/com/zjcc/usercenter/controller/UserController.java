@@ -79,8 +79,8 @@ public class UserController {
 
     // 用户注销
     @PostMapping("/logout")
-    public BaseResponse<Integer> userLogout(HttpServletRequest request) {
-        int result = userService.userLogout(request);
+    public BaseResponse<Boolean> userLogout(HttpServletRequest request) {
+        boolean result = userService.userLogout(request);
         return ResponseResult.ok(result);
     }
 
