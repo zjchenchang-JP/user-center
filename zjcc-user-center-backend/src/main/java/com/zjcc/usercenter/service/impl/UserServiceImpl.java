@@ -1,7 +1,5 @@
 package com.zjcc.usercenter.service.impl;
 
-import java.util.Date;
-
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zjcc.usercenter.common.ErrorCode;
@@ -97,10 +95,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
         // 唯一性校验 优化 只查询一次数据库
         // 合并查询，只一次数据库IO，统一异常提示
-        long duplicateCount = this.count(new QueryWrapper<User>()
-                .or()
-                .eq("userAccount", userAccount)
-                .eq("planetCode", planetCode));
+        // 注意Mybatis语法
+        // QueryWrapper<User> queryWrapper = new QueryWrapper<User>()
+        //         .and(wrapper -> wrapper
+        //                 .eq("userAccount", userAccount)
+        //                 .or()
+        //                 .eq("planetCode", planetCode));
+        QueryWrapper<User> queryWrapper = new QueryWrapper<User>()
+                        .eq("userAccount", userAccount)
+                        .or()
+                        .eq("planetCode", planetCode);
+        // // 打印生成的 SQL
+        // System.out.println("SQL: " + queryWrapper.getCustomSqlSegment());
+        // System.out.println("参数: " + queryWrapper.getParamNameValuePairs());
+
+        long duplicateCount = this.count(queryWrapper);
         if (duplicateCount > 0) {
             log.warn("用户注册参数重复，账户：{}，星球编号：{}", userAccount, planetCode);
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户账户或星球编号已存在");
@@ -174,7 +183,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     // 注销方法
     @Override
-    public int userLogout(HttpServletRequest request) {
+    public boolean userLogout(HttpServletRequest request) {
         // TODO
         // try {
         //     HttpSession session = request.getSession(false);
@@ -197,15 +206,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         //     return UserOperateResultEnum.LOGOUT_FAILED;
         // }
 
-        // 删除session 数据
-        request.getSession().removeAttribute(USER_LOGIN_STATE);
-        // 注销成功
-        return 1;
+        // ❌ 不好的写法
+        // request.getSession().invalidate();
+        // 如果用户根本没登录，会先创建一个空 session，然后立即销毁
+        // 多此一举，浪费资源
+        // ✅ 好的写法
+        // HttpSession session = request.getSession(false);
+
+        try {
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                session.removeAttribute(USER_LOGIN_STATE);
+            }
+            return true;  // ✅ 语义清晰：登出成功
+        } catch (Exception e) {
+            log.error("用户注销失败", e);
+            return false;  // ✅ 登出失败
+        }
     }
 
 
     /**
      * Desensitization 用户脱敏
+     *
      * @param loginUser 登录用户
      * @return safetyUser  信息脱敏后的用户
      */

@@ -4,6 +4,7 @@ import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -28,6 +29,14 @@ public class GlobalExceptionHandler {
     public BaseResponse<?> businessExceptionHandler(RuntimeException e) {
         log.error("runtimeException", e);
         return ResponseResult.error(ErrorCode.SYSTEM_ERROR,e.getMessage(),"");
+    }
+
+
+    // 依靠MySQL 唯一性索引 兜底。可保证并发情况下，侥幸通过注册判重逻辑的 重复注册行为
+    @ExceptionHandler(DuplicateKeyException.class)
+    public BaseResponse handleDuplicateKeyException(DuplicateKeyException e) {
+        log.error("数据重复，{}", e.getMessage());
+        return ResponseResult.error(ErrorCode.PARAMS_ERROR, "用户账户或星球编号已存在");
     }
 
 }

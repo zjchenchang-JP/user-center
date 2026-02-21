@@ -1113,3 +1113,164 @@ axios.post('/submit', formData).then(res => {
   - 包含路由的所有信息（路径、参数、查询条件等）
   - 在 TypeScript 中提供类型检查和代码提示
   - 保证路由导航守卫中的参数是类型安全的
+
+
+# 2026/02/21
+你想了解Vue框架中路由守卫和请求/响应拦截器的核心区别，以及它们各自对应的适用场景，这是Vue项目中处理“页面跳转”和“数据请求”两类核心行为的重要机制，搞清楚它们的边界能让你更合理地设计业务逻辑。
+
+## 一、核心区别：先搞懂“管什么事”
+首先用最通俗的话区分两者的本质：
+- **路由守卫**：属于 `Vue Router` 的能力，只围绕「路由跳转（页面切换）」这个行为做拦截、校验、控制，管的是“页面能不能跳、跳之前/之后做什么”。
+- **请求/响应拦截器**：通常是 `axios`（前端最常用的HTTP请求库）提供的能力，只围绕「HTTP请求/响应」这个行为做拦截、处理，管的是“数据能不能发/收、发之前/收之后做什么”。
+
+用表格能更清晰对比核心差异：
+
+| 维度         | 路由守卫                     | 请求/响应拦截器               |
+|--------------|------------------------------|--------------------------------|
+| 拦截对象     | 路由（页面跳转）             | HTTP请求/响应（数据通信）      |
+| 所属模块     | Vue Router                   | axios（或其他请求库）          |
+| 触发时机     | 路由跳转的各个阶段（前/后）  | 请求发送前、响应返回后         |
+| 核心目标     | 控制页面访问权限、跳转逻辑   | 统一处理请求/响应的通用逻辑    |
+| 作用域       | 前端页面路由层面             | 前端与后端的数据交互层面       |
+
+## 二、各自的使用场景 + 代码示例
+### 1. 路由守卫：处理“页面跳转”相关逻辑
+路由守卫分3类核心场景（全局守卫、路由独享守卫、组件内守卫），这里以最常用的**全局前置守卫**为例，覆盖典型场景：
+
+#### 典型使用场景：
+- 登录校验：未登录用户禁止访问需要权限的页面（如首页、个人中心），跳转到登录页；
+- 页面权限控制：根据用户角色（如管理员/普通用户）限制访问特定路由；
+- 路由跳转前的预处理：比如关闭弹窗、保存页面状态；
+- 路由跳转后处理：比如修改页面标题、埋点统计。
+
+#### 代码示例（全局前置守卫做登录校验）：
+```javascript
+// src/router/index.js
+import Vue from 'vue'
+import VueRouter from 'vue-router'
+import Login from '@/views/Login.vue'
+import Home from '@/views/Home.vue'
+
+Vue.use(VueRouter)
+
+const routes = [
+  { path: '/login', name: 'Login', component: Login },
+  { path: '/home', name: 'Home', component: Home, meta: { requiresAuth: true } } // 需要登录的路由
+]
+
+const router = new VueRouter({ routes })
+
+// 全局前置守卫：路由跳转前触发
+router.beforeEach((to, from, next) => {
+  // 1. 判断目标路由是否需要登录权限
+  if (to.meta.requiresAuth) {
+    // 2. 从本地存储获取登录状态（实际项目可结合Vuex）
+    const isLogin = localStorage.getItem('token')
+    if (isLogin) {
+      // 已登录，允许跳转
+      next()
+    } else {
+      // 未登录，跳转到登录页，并记录目标路由（登录后可跳转回去）
+      next({ path: '/login', query: { redirect: to.fullPath } })
+    }
+  } else {
+    // 不需要权限，直接放行
+    next()
+  }
+})
+
+export default router
+```
+
+### 2. 请求/响应拦截器：处理“数据请求”相关逻辑
+拦截器分为「请求拦截器（request）」和「响应拦截器（response）」，各自有明确的分工，是前端统一处理请求逻辑的核心方式。
+
+#### 典型使用场景：
+##### （1）请求拦截器（请求发送前）：
+- 统一给请求头添加token（后端鉴权必备）；
+- 统一处理请求参数（如添加时间戳、格式化参数）；
+- 显示全局加载中状态（如请求发送时显示loading）；
+- 过滤无效请求（如重复请求取消）。
+
+##### （2）响应拦截器（响应返回后）：
+- 统一解析响应数据（如后端返回{code:200, data: {...}}，只提取data）；
+- 统一处理错误状态码（如401 token过期跳登录页、500提示服务器错误）；
+- 隐藏全局加载中状态；
+- 统一处理业务错误（如code≠200时提示错误信息）。
+
+#### 代码示例（axios拦截器）：
+```javascript
+// src/utils/request.js
+import axios from 'axios'
+import { Message } from 'element-ui' // 假设用ElementUI做提示
+import router from '@/router'
+
+// 创建axios实例
+const service = axios.create({
+  baseURL: process.env.VUE_APP_BASE_API, // 接口基础地址
+  timeout: 5000 // 请求超时时间
+})
+
+// 1. 请求拦截器：发送请求前处理
+service.interceptors.request.use(
+  (config) => {
+    // 给请求头添加token（登录后存储在本地）
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    // 显示加载中（可选）
+    // loading.show()
+    return config
+  },
+  (error) => {
+    // 请求错误（如参数错误、超时前）的处理
+    console.error('请求拦截器错误：', error)
+    return Promise.reject(error)
+  }
+)
+
+// 2. 响应拦截器：接收响应后处理
+service.interceptors.response.use(
+  (response) => {
+    // 隐藏加载中（可选）
+    // loading.hide()
+    // 后端返回格式：{ code: 200, data: {}, msg: '' }
+    const res = response.data
+    if (res.code !== 200) {
+      // 业务错误：统一提示
+      Message.error(res.msg || '请求失败')
+      // 特殊错误码处理：401 token过期
+      if (res.code === 401) {
+        Message.warning('登录状态过期，请重新登录')
+        // 清除token并跳登录页
+        localStorage.removeItem('token')
+        router.push('/login')
+      }
+      return Promise.reject(res)
+    } else {
+      // 业务成功：只返回data，简化页面使用
+      return res.data
+    }
+  },
+  (error) => {
+    // 隐藏加载中
+    // loading.hide()
+    // HTTP错误（如404、500）的处理
+    console.error('响应拦截器错误：', error)
+    Message.error(error.message || '服务器错误')
+    return Promise.reject(error)
+  }
+)
+
+export default service
+```
+
+## 三、总结（关键点回顾）
+1. **核心拦截对象不同**：路由守卫管「页面跳转」，拦截器管「HTTP请求/响应」，两者的作用域完全不重叠；
+2. **核心作用不同**：路由守卫主要做「页面访问权限控制」，拦截器主要做「请求/响应的通用逻辑统一处理」；
+3. **典型场景对应**：
+   - 需控制“能不能进某个页面”→ 用路由守卫；
+   - 需统一处理“请求加token、响应报错提示”→ 用请求/响应拦截器。
+
+举个实际业务例子：用户点击“个人中心”（路由跳转）→ 路由守卫校验是否登录→ 未登录跳登录页；登录后再次点击→ 路由守卫放行→ 页面发送获取用户信息的请求→ 请求拦截器加token→ 响应拦截器处理返回结果/错误。两者配合完成完整的业务流程。
