@@ -175,6 +175,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.ACCOUNT_OR_PASSWORD_ERROR); // 对外可模糊提示，避免泄露密码错误细节
         }
         // 3.记录session状态
+        // 后端创建的 Session 绑定到域名，无法跨域共享!!
         request.getSession().setAttribute(USER_LOGIN_STATE, loginUser);
 
         // 4. 返回脱敏用户

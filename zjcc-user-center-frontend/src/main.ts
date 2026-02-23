@@ -89,6 +89,3 @@ const app = createApp(App).use(pinia).use(Antd).use(router);
 
 import "./access";
 app.mount("#app");
-
-
-

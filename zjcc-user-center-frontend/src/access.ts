@@ -10,7 +10,7 @@ router.beforeEach(
   async (
     to: any, // to: 目标路由对象（用户想要访问的页面）
     from: any, // from: 来源路由对象（用户当前所在的页面）
-    next: any, // next: 路由控制函数（用于决定是否允许导航继续）
+    next: any // next: 路由控制函数（用于决定是否允许导航继续）
   ) => {
     // 获取全局登录用户状态管理实例（Pinia store）
     const loginUserStore = useLoginUserStore();
@@ -33,5 +33,5 @@ router.beforeEach(
     }
     // 如果通过权限校验（不是管理员页面，或者是管理员且已登录），则允许导航继续
     next();
-  },
+  }
 );

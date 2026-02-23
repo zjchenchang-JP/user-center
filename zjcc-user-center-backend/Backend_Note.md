@@ -229,3 +229,175 @@ public String test(){
     return "success";
 }
 ```
+
+# 2026/02/22
+## 📋 打包问题总结
+
+🔴 问题原因
+
+pom.xml:93 配置了 <skip>true</skip>，导致 Spring Boot Maven Plugin 跳过打包，生成的 jar 包不完整，无法运行。
+
+  ---
+✅ 解决步骤
+
+步骤 1：修改 pom.xml
+
+删除第 93 行的 <skip>true</skip>：
+```java
+<plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+      <version>${spring-boot.version}</version>
+      <configuration>
+          <mainClass>com.zjcc.usercenter.ZjccUserCenterBackendApplication</mainClass>
+          <!-- ❌ 删除这行：<skip>true</skip> -->
+      </configuration>
+      <executions>
+          <execution>
+              <id>repackage</id>
+              <goals>
+                  <goal>repackage</goal>
+              </goals>
+          </execution>
+      </executions>
+  </plugin>
+```
+  ---
+步骤 2：重新打包
+
+# 进入后端目录
+cd E:\development\Java\codefather-projects\user-center\zjcc-user-center\zjcc-user-center-backend
+
+# 清理并重新打包（跳过测试，加快速度）
+mvn clean package -DskipTests
+
+  ---
+步骤 3：运行 jar 包
+
+# 进入 target 目录
+cd target
+
+# 运行开发环境
+java -jar user-center-0.0.1-SNAPSHOT.jar
+
+# 或者运行生产环境
+java -jar user-center-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
+
+# 或者指定编码（解决中文乱码）
+java -Dfile.encoding=UTF-8 -jar user-center-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
+
+  ---
+📝 常用命令清单
+
+| 命令                                            | 作用                          |
+  |-------------------------------------------------|-------------------------------|
+| mvn clean package -DskipTests                   | 清理并打包（跳过测试）        |
+| mvn clean package                               | 清理并打包（包含测试）        |
+| java -jar xxx.jar                               | 运行 jar 包（开发环境）       |
+| java -jar xxx.jar --spring.profiles.active=prod | 运行 jar 包（生产环境）       |
+| netstat -ano | findstr :8080                    | 检查 8080 端口占用            |
+| jps -l                                          | 查看运行中的 Java 进程        |
+| chcp 65001                                      | 修改 Windows 终端编码为 UTF-8 |
+
+  ---
+⚠️ 注意事项
+
+1. 每次修改 pom.xml 后必须重新打包
+2. 生产环境会使用 application-prod.yml 配置（远程数据库）
+3. 开发环境使用 application.yml 配置（本地数据库）
+4. 中文乱码问题：使用 -Dfile.encoding=UTF-8 参数
+
+  ---
+修改完 pom.xml 后，重新执行步骤 2 和 3 即可！
+
+  ---
+# 云服务器部署SpringBoot项目端口冲突解决方案总结
+## 核心思路
+部署在云服务器上的SpringBoot项目遇到8080端口被占用时，**无需修改源代码/重新打包**，核心采用「运行时动态指定端口」的方式解决，兼顾灵活性与企业级部署规范。
+## 一、快速解决端口冲突（核心命令）
+### 1. 命令行参数指定端口（首选，简单直观）
+启动时直接通过`--server.port`指定未被占用的端口，同时可搭配生产环境激活（`spring.profiles.active=prod`）：
+```bash
+# 基础版：仅指定端口
+java -jar 你的项目包名.jar --server.port=8081
+
+# 综合版：指定端口 + 激活prod生产环境
+java -jar 你的项目包名.jar --server.port=8081 --spring.profiles.active=prod
+
+# 后台运行版（云服务器常用，避免终端关闭服务停止）
+nohup java -jar 你的项目包名.jar --server.port=8081 --spring.profiles.active=prod > app.log 2>&1 &
+```
+
+### 2. 环境变量传递端口（适配容器/自动化部署）
+通过系统环境变量传递端口，无需修改命令结构，符合Docker/K8s等容器化部署规范：
+```bash
+# Linux/Mac系统
+SERVER_PORT=8081 SPRING_PROFILES_ACTIVE=prod java -jar 你的项目包名.jar
+
+# Windows服务器（cmd）
+set SERVER_PORT=8081 && set SPRING_PROFILES_ACTIVE=prod && java -jar 你的项目包名.jar
+
+# Windows服务器（PowerShell）
+$env:SERVER_PORT=8081; $env:SPRING_PROFILES_ACTIVE="prod"; java -jar 你的项目包名.jar
+```
+
+### 3. 外部配置文件指定端口（适合多配置场景）
+若生产环境有大量配置（如数据库、Redis），可通过外部配置文件固定端口，启动时加载：
+```bash
+# 步骤1：服务器新建配置文件（如/opt/config/application-prod.properties）
+echo "server.port=8081" > /opt/config/application-prod.properties
+
+# 步骤2：启动时加载外部配置 + 激活prod环境
+java -jar 你的项目包名.jar --spring.config.location=/opt/config/application-prod.properties --spring.profiles.active=prod
+```
+
+## 二、企业级长效解决方案（避免反复端口冲突）
+### 1. 自动检查端口的启动脚本（推荐）
+创建`start.sh`脚本，自动检测端口占用并切换可用端口启动，一键解决冲突：
+```bash
+#!/bin/bash
+# 配置项
+JAR_NAME="你的项目包名.jar"       # 替换为实际jar包名
+BASE_PORT=8080                   # 基础端口
+LOG_FILE="user-center.log"       # 日志文件
+
+# 自动检测可用端口
+PORT=$BASE_PORT
+while lsof -i:$PORT >/dev/null; do
+    echo "端口 $PORT 被占用，尝试端口 $((PORT+1))..."
+    PORT=$((PORT+1))
+done
+
+# 后台启动服务（激活prod环境 + 指定可用端口）
+echo "开始启动项目，端口：$PORT，环境：prod..."
+nohup java -jar $JAR_NAME --server.port=$PORT --spring.profiles.active=prod > $LOG_FILE 2>&1 &
+
+# 输出启动信息
+echo "项目启动成功！PID：$!"
+echo "日志文件：$LOG_FILE（可执行 tail -f $LOG_FILE 查看）"
+echo "访问地址：http://服务器IP:$PORT"
+```
+**使用步骤**：
+```bash
+chmod +x start.sh  # 赋予执行权限
+./start.sh         # 一键启动
+```
+
+### 2. 端口管理规范
+- 为每个SpringBoot项目分配**专属固定端口**（如用户中心8085、订单服务8086），记录在服务器文档中；
+- 容器化部署时，通过Docker/K8s的端口映射（如`-p 8081:8080`）隔离容器内端口，避免宿主机端口冲突。
+
+## 三、关键知识点补充
+### 1. 配置优先级（冲突时以此为准）
+命令行参数（`--server.port`） > 环境变量（`SERVER_PORT`） > 外部配置文件 > jar内置配置。
+
+### 2. 命令行参数 vs 环境变量区别
+| 方式                | 核心优势                  | 适用场景                          |
+|---------------------|---------------------------|-----------------------------------|
+| `--server.port=8081` | 直观、优先级最高、无依赖  | 传统服务器部署、临时调整端口      |
+| `SERVER_PORT=8081`   | 适配容器化、批量传配置    | Docker/K8s部署、自动化脚本部署    |
+
+## 四、总结关键点
+1. 解决端口冲突的核心是「运行时动态指定端口」，拒绝修改源代码重新打包；
+2. 快速解决用`java -jar 包名.jar --server.port=新端口`，长效解决用自动检查端口的启动脚本；
+3. 容器化部署优先用环境变量传递端口，传统部署优先用命令行参数/外部配置文件。
