@@ -432,3 +432,69 @@ docker run -p 8080:8080 --name user-center-app user-center:v1
 2. 其次通过 `docker ps -a` 查看容器退出码，快速判断错误类型（退出码1=应用错误，137=内存不足）；
 3. 若日志不清晰，可前台启动容器（不加 `-d`），实时查看报错信息；
 4. 常见问题多为 JAR 包路径错误、端口占用、CMD 命令语法错误，对照排查清单可快速定位。
+
+---
+## 查看日志 排查 debug
+你想在查看 `docker logs user-center-app` 时只看部分日志，避免被大量输出淹没，我会教你几个实用的命令，既能精准查看关键日志，又能过滤无效信息。
+
+### 1. 查看最后 N 行日志（最常用）
+这是最直接的方式，指定只看日志的最后几行（比如最后100行），聚焦最新的启动/报错信息：
+```bash
+# 查看最后100行日志（数字可自定义，比如50、200）
+docker logs --tail=100 user-center-app
+
+# 简写形式（效果相同）
+docker logs -n 100 user-center-app
+```
+
+### 2. 查看最近一段时间的日志
+如果想只看“最近几分钟/几小时”的日志（比如最近10分钟），适合排查刚发生的错误：
+```bash
+# 查看最近10分钟的日志（支持 s=秒、m=分、h=小时、d=天）
+docker logs --since=10m user-center-app
+
+# 组合用法：查看最近5分钟的最后50行日志
+docker logs --since=5m --tail=50 user-center-app
+```
+
+### 3. 过滤包含指定关键词的日志（精准定位错误）
+如果知道错误关键词（比如 `error`、`memory`、`failed`），可以用 `grep` 过滤，只显示相关日志：
+```bash
+# 只显示包含“error”的日志（忽略大小写）
+docker logs user-center-app | grep -i error
+
+# 只显示包含“memory”或“failed”的日志
+docker logs user-center-app | grep -E "memory|failed"
+
+# 组合用法：只看最后200行中包含“Exception”的日志
+docker logs --tail=200 user-center-app | grep Exception
+```
+
+### 4. 实时查看新增日志（动态跟踪）
+如果容器还在运行，想实时看新增的日志（类似 `tail -f`），按 `Ctrl+C` 停止：
+```bash
+# 实时跟踪日志（只看新增内容，不显示历史）
+docker logs -f user-center-app
+
+# 实时跟踪最后50行日志（避免加载全部历史）
+docker logs -f --tail=50 user-center-app
+```
+
+### 5. 常用组合命令（解决你的核心问题）
+针对你之前的“内存不足/文件描述符错误”，推荐用以下命令精准排查：
+```bash
+# 方案1：只看最后200行日志，快速定位启动错误
+docker logs --tail=200 user-center-app
+
+# 方案2：只看包含“memory”或“error”的日志（直接找核心错误）
+docker logs user-center-app | grep -i "memory\|error"
+
+# 方案3：只看最近5分钟的错误日志
+docker logs --since=5m user-center-app | grep -i error
+```
+
+### 总结
+1. 看少量历史日志：优先用 `docker logs --tail=N 容器名`（N 为行数）；
+2. 精准找错误：用 `grep` 过滤关键词（`error`/`memory`/`Exception`）；
+3. 实时跟踪：用 `docker logs -f --tail=N 容器名` 只看新增的少量日志；
+4. 组合用法：`--tail` + `grep` 是排查容器启动错误最高效的方式。
