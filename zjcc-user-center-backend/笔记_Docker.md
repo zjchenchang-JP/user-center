@@ -277,3 +277,65 @@ netstat -nltp #监听运行的 tcp协议进程
 2. **运行容器**：`docker run -d -p 宿主机端口:容器端口 --name 容器名 镜像名`，核心是 `-d` 后台运行、`-p` 端口映射、`--name` 自定义容器名；
 3. **容器交互**：`docker exec -it 容器名 /bin/sh`，核心是 `-it` 交互式终端，用于查看/修改容器内文件；
 4. **基础管理**：`docker ps`（查容器）、`docker stop`（停容器）、`docker rm`（删容器）、`docker rmi`（删镜像）是高频操作。
+
+---
+注！
+你想弄清楚 `docker build -t user-center:v1 .` 里的 `user-center` 和 JAR 包名 `user-center-0.0.1-SNAPSHOT.jar` 之间的联系，这其实是 Docker 镜像命名和项目产物命名的关联问题，我会用通俗的逻辑讲清楚两者的关系——**没有强制绑定，但有最佳实践的关联**。
+
+### 1. 先拆解两个“user-center”的本质含义
+| 位置 | 具体内容 | 本质含义 | 由谁决定 |
+|------|----------|----------|----------|
+| `docker build -t user-center:v1 .` | `user-center` | Docker 镜像的**名称**（标签前缀） | 你手动指定的（自定义） |
+| `/app/target/user-center-0.0.1-SNAPSHOT.jar` | `user-center` | Maven 打包生成的 JAR 包前缀 | `pom.xml` 中的 `<artifactId>` 决定（默认规则） |
+
+### 2. 核心结论：两者无“技术上的强制联系”
+从 Docker 运行机制来看：
+- `docker build -t user-center:v1 .` 里的 `user-center` 只是给最终生成的 Docker 镜像起的“别名”，Docker 并不关心镜像里跑的 JAR 包叫什么名字；
+- 哪怕你把镜像名改成 `abc:v1`，只要 JAR 包路径写对，容器依然能正常启动，比如：
+  ```bash
+  # 镜像名改成abc，和JAR包名无关
+  docker build -t abc:v1 .
+  # 依然能正常运行
+  docker run -d -p 8080:8080 abc:v1
+  ```
+
+### 3. 最佳实践：为什么建议两者保持一致？
+虽然技术上无强制关联，但实际开发中都建议把镜像名和 JAR 包前缀保持一致（比如都用 `user-center`），核心原因是：
+#### （1）便于识别和管理
+比如你的服务器上有多个镜像：
+```bash
+docker images
+# 输出示例
+REPOSITORY       TAG    IMAGE ID
+user-center      v1     abc123
+order-center     v1     def456
+pay-center       v1     ghi789
+```
+一眼就能看出 `user-center:v1` 这个镜像对应的是“用户中心”项目（因为 JAR 包前缀也是 `user-center`），避免镜像名和业务脱节（比如镜像名叫 `abc:v1`，过段时间你会忘了它是哪个项目的）。
+
+#### （2）符合团队协作规范
+绝大多数公司的开发规范都会要求：Docker 镜像名 = 项目名/模块名 = `pom.xml` 中的 `<artifactId>`，这样团队成员看到镜像名就知道对应哪个业务模块，减少沟通成本。
+
+### 4. 举例：不一致也能运行（验证无强制关联）
+假设你的 `pom.xml` 中 `<artifactId>user-center</artifactId>`，打包生成 `user-center-0.0.1-SNAPSHOT.jar`，但你把镜像名改成 `my-app:v1`：
+```bash
+# 镜像名和JAR包名完全无关
+docker build -t my-app:v1 .
+
+# 运行容器（依然能正常启动）
+docker run -d -p 8080:8080 my-app:v1
+
+# 查看容器日志（确认启动成功）
+docker logs 容器ID
+```
+日志会显示 Spring Boot 正常启动，说明镜像名和 JAR 包名的“不一致”不会影响功能。
+
+### 5. 补充：COPY 指令中的 JAR 包名和镜像名无关
+你之前看到的 `COPY --from=builder /app/target/user-center-0.0.1-SNAPSHOT.jar ./app.jar` 这条指令：
+- 核心是“从构建阶段复制指定路径的 JAR 包到运行阶段”，只关心 JAR 包的**路径是否正确**，和镜像名（`user-center`）完全无关；
+- 哪怕镜像名改成 `xxx:v1`，只要 `COPY` 的源路径（`/app/target/user-center-0.0.1-SNAPSHOT.jar`）正确，就能复制到 JAR 包。
+
+### 总结
+1. 技术层面：`docker build -t user-center:v1 .` 里的 `user-center`（镜像名）和 JAR 包名里的 `user-center` 无强制绑定，镜像名可自定义，不影响容器运行；
+2. 实践层面：建议两者保持一致，核心是为了**便于识别、管理和符合团队规范**；
+3. 关键重点：Docker 镜像名是“自定义标签”，JAR 包名由 `pom.xml` 的 `<artifactId>` 决定，两者的关联是“人为约定”而非“技术强制”。
