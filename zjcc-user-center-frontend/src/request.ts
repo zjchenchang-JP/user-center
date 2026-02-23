@@ -15,7 +15,7 @@ const myAxios = axios.create({
   baseURL:
     process.env.NODE_ENV === "development"
       ? "http://localhost:8080"
-      : "http://localhost:8080",
+      : "http://43.163.195.79", // 生产环境：只保留 Nginx 域名
   // 配置请求超时时间：10000 毫秒 = 10 秒
   // 若请求超过 10 秒未收到响应，则自动终止请求并抛出超时错误
   timeout: 10000,

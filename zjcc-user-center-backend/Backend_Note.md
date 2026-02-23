@@ -401,3 +401,143 @@ chmod +x start.sh  # 赋予执行权限
 1. 解决端口冲突的核心是「运行时动态指定端口」，拒绝修改源代码重新打包；
 2. 快速解决用`java -jar 包名.jar --server.port=新端口`，长效解决用自动检查端口的启动脚本；
 3. 容器化部署优先用环境变量传递端口，传统部署优先用命令行参数/外部配置文件。
+
+## 两个Cookie 对比 Cookie和Session
+1. 浏览器端 Cookie（JSESSIONID）
+
+- 显示"会话" = Session Cookie
+- 没有设置 Max-Age 或 Expires 属性
+- 浏览器关闭时自动删除
+- 这就是为什么你看到过期时间是"会话"
+
+2. 服务器端 Session
+
+- 在 application.yml 中配置了 timeout: 86400
+- 服务器在内存中保存 1 天
+- 1天后服务器会销毁这个 Session
+
+  ---
+两者之间的关系
+
+┌─────────────────────────────────────────────────────┐
+│  浏览器 Cookie (JSESSIONID)                          │
+│  过期时间：浏览器关闭时删除                           │
+├─────────────────────────────────────────────────────┤
+│  服务器 Session (USER_LOGIN_STATE)                  │
+│  过期时间：86400秒（1天）后删除                      │
+└─────────────────────────────────────────────────────┘
+
+场景分析
+
+场景1：正常使用（1天内不关闭浏览器）
+- ✅ Cookie 和 Session 都存在
+- ✅ 用户保持登录状态
+
+场景2：1天内关闭浏览器再重新打开
+- ❌ 浏览器删除了 JSESSIONID
+- ✅ 服务器 Session 可能还存在（但找不到对应的 Cookie 了）
+- 结果：需要重新登录
+
+场景3：超过1天不关闭浏览器
+- ✅ JSESSIONID Cookie 还在（浏览器没关闭）
+- ❌ 服务器 Session 已经过期被删除
+- 结果：需要重新登录（Cookie 有，但服务器找不到对应 Session）
+
+  ---
+如何验证服务器 Session 的过期时间？
+
+方法1：通过代码查看 Session 配置
+
+在代码中临时添加一个接口查看 Session 信息：
+
+```java
+    @GetMapping("/session-info")
+    public BaseResponse<Map<String, Object>> getSessionInfo(HttpServletRequest request) {
+    HttpSession session = request.getSession();
+    Map<String, Object> info = new HashMap<>();
+    info.put("sessionId", session.getId());
+    info.put("maxInactiveInterval", session.getMaxInactiveInterval()); // 秒
+    info.put("creationTime", new Date(session.getCreationTime()));
+    info.put("lastAccessedTime", new Date(session.getLastAccessedTime()));
+    info.put("attributeNames", Collections.list(session.getAttributeNames()));
+    return ResponseResult.ok(info);
+    }
+
+访问后会看到：
+    {
+    "sessionId": "a5279e8ab73b5bdfe2e4ae90a6eb0b0f",
+    "maxInactiveInterval": 86400,  // ← 这就是配置的过期时间（秒）
+    "creationTime": "2026-02-23T...",
+    "lastAccessedTime": "2026-02-23T...",
+    "attributeNames": ["USER_LOGIN_STATE"]
+    }
+```
+
+方法2：修改 application.yml，让 Cookie 也有过期时间
+
+如果你想让 Cookie 和 Session 的过期时间保持一致，取消注释你配置文件中的这段：
+
+```yml
+    server:
+        servlet:
+            session:
+                cookie:
+                max-age: 86400  # Cookie 也设置1天过期
+                http-only: true
+                secure: false   # 如果用 HTTPS 改为 true
+```
+```yaml    
+# 考虑到用户体验，建议：
+    server:
+      servlet:
+        session:
+          timeout: 86400  # Session 1天过期
+          cookie:
+            max-age: 86400      # Cookie 也1天过期
+            http-only: true     # 防止 XSS 窃取
+            secure: false       # HTTP 环境设为 false
+            same-site: lax      # 防止 CSRF 攻击
+```
+这样 JSESSIONID 也会显示具体的过期时间，而不是"会话"。
+
+>
+```yaml
+配置 servlet.cookie.max-age
+
+行为：
+- JSESSIONID 显示具体过期时间（1天后）
+- 浏览器关闭后，Cookie 仍然保留
+- 用户关闭浏览器后再打开，如果未超过 1 天，仍然保持登录
+
+优点：
+- ✅ 用户体验好（不用频繁登录）
+- ✅ Cookie 和 Session 过期时间一致
+
+缺点：
+- ❌ 安全性略低（公共设备上有风险）
+
+  ---
+我的建议
+
+对于你的用户中心项目：
+
+不需要配置 servlet，原因：
+
+1. 你的应用特点：用户中心需要频繁登录/注销，Session Cookie 更安全
+2. 已经配置了 Session timeout：服务器端 1 天过期已经足够（防止无限占用内存）
+3. 简单即是好：当前配置已经满足需求
+
+当前配置已经足够：
+spring:
+session:
+timeout: 86400  # ← 这个就够了
+
+  ---
+什么时候需要配置 servlet？
+
+- 电商网站（希望用户保持购物车）
+- 后台管理系统（内部使用，长期保持登录）
+- 移动端应用（没有"关闭浏览器"的概念）
+
+总结：你的项目当前配置已经合理，不需要额外配置 servlet。
+```
