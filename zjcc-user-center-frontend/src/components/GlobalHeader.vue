@@ -20,14 +20,20 @@
         <div class="user-login-status">
           <!-- 如果登录了，则展示登录用户名 如果没有用户名则给一个默认值“无名” -->
           <!-- 如果登录了，则展示登录用户名和登出按钮 -->
-           <div v-if="loginUserStore.loginUser.id" class="user-info">
-           <span class="username">{{ loginUserStore.loginUser.username || "无名" }}</span>
-               <a-button type="link" @click="doLogout" class="logout-btn">登出</a-button>
+          <div v-if="loginUserStore.loginUser.id" class="user-info">
+            <span class="username">{{
+              loginUserStore.loginUser.username || "无名"
+            }}</span>
+            <a-button type="link" @click="doLogout" class="logout-btn"
+              >登出</a-button
+            >
           </div>
           <!-- 如果没登录，则展示登录按钮 -->
           <div v-else>
             <!-- <a-button type="primary" href="/user/login">登录</a-button> -->
-            <a-button type="primary" @click="router.push('/user/login')">登录</a-button>
+            <a-button type="primary" @click="router.push('/user/login')"
+              >登录</a-button
+            >
           </div>
         </div>
       </a-col>
@@ -61,14 +67,14 @@ const doMenuClick = ({ key }: { key: string }) => {
   });
 };
 // 登出功能
-const doLogout = async () =>{
+const doLogout = async () => {
   const res = await userLogout({});
-  if (res.data.code === 0){
-    loginUserStore.loginUser = {};// 清除登录状态
-    message.success("登出成功")
-    router.push("/user/login")
+  if (res.data.code === 0) {
+    loginUserStore.loginUser = {}; // 清除登录状态
+    message.success("登出成功");
+    router.push("/user/login");
   }
-}
+};
 
 const current = ref<string[]>(["home"]);
 // 保障刷新页面后菜单会根据 current 选中项高亮

@@ -52,7 +52,7 @@ const doDelete = async (id: string) => {
   if (res.data.code === 0) {
     message.success("删除成功");
     // 下面代码修复：删除了页面不变化 手动刷新才变化
-    data.value = data.value.filter((item) => item.id !== id)
+    data.value = data.value.filter((item) => item.id !== id);
   } else {
     message.error("删除失败");
   }

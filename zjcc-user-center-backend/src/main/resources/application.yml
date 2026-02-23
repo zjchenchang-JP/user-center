@@ -2,7 +2,7 @@ server:
   port: 8080
 spring:
   application:
-    name: user-center
+    name: user-center # 设置应用名为 user-center，用于服务注册、日志标识等场景。
   datasource:
     url: jdbc:mysql://localhost:3306/yupi?useUnicode=true&characterEncoding=utf-8&useSSL=false&allowPublicKeyRetrieval=true&zeroDateTimeBehavior=convertToNull&transformedBitIsBoolean=true&allowMultiQueries=true&tinyInt1isBit=false&allowLoadLocalInfile=true&allowLocalInfile=true&allowUrlInLocalInfile=true&allowPublicKeyRetrieval=true&allowMultiQueries=true&allowPublicKeyRetrieval=true&allowUrlInLocalInfile=true&allowPublicKeyRetrieval=true&allowMultiQueries=true&allowPublicKeyRetrieval=true&allowUrlInLocalInfile=true&allowPublicKeyRetrieval=true&allowMultiQueries=true&allowPublic
     driver-class-name: com.mysql.cj.jdbc.Driver

@@ -90,7 +90,7 @@
                 <version>${spring-boot.version}</version>
                 <configuration>
                     <mainClass>com.zjcc.usercenter.ZjccUserCenterBackendApplication</mainClass>
-                    <skip>true</skip>
+                    <!-- <skip>true</skip> -->
                 </configuration>
                 <executions>
                     <execution>

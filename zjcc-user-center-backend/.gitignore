@@ -18,6 +18,9 @@ target/
 *.iws
 *.iml
 *.ipr
+# 在 .gitignore 文件末尾或“IntelliJ IDEA”部分之后添加：
+src/main/resources/application-prod.yml
+
 
 ### NetBeans ###
 /nbproject/private/
@@ -28,6 +31,10 @@ target/
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+/SQL/user.sql
+
 
 ### VS Code ###
 .vscode/
+
+

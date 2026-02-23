@@ -2,13 +2,20 @@
 // 封装全局请求 - 标准模版
 // 1. 导入 axios 库（已通过 npm install axios 安装的第三方请求库）
 import axios from "axios";
+alert(process.env.NODE_ENV);
 
 // 2. 通过 axios.create() 方法创建一个自定义的 axios 实例（myAxios）
 // 该实例可以独立配置基础路径、超时时间等，不会污染全局 axios 配置
 const myAxios = axios.create({
   // 配置请求的基础 URL（所有通过 myAxios 发起的请求，都会自动拼接该前缀）
   // 示例：调用 myAxios.get("/user") 实际请求地址为 http://localhost:8080/user
-  baseURL: "http://localhost:8080",
+  // 配置多环境
+  // baseURL: "http://localhost:8080",
+  // 生产环境 记得运行 “npm i -g serve” 命令全局安装serve。然后进入到dist目录运行 "serve" 就能通过生产环境启动项目
+  baseURL:
+    process.env.NODE_ENV === "development"
+      ? "http://localhost:8080"
+      : "http://localhost:8080",
   // 配置请求超时时间：10000 毫秒 = 10 秒
   // 若请求超过 10 秒未收到响应，则自动终止请求并抛出超时错误
   timeout: 10000,
@@ -36,7 +43,7 @@ myAxios.interceptors.request.use(
     // 处理请求配置错误（如打印错误日志、隐藏加载动画等）
     // 返回 Promise.reject(error)：将错误向下传递，便于后续业务代码捕获处理
     return Promise.reject(error);
-  },
+  }
 );
 
 // Add a response interceptor
@@ -89,7 +96,7 @@ myAxios.interceptors.response.use(
     // 示例3：处理 404（资源不存在）、500（服务器内部错误）等特定状态码
     // 返回 Promise.reject(error)：将错误向下传递，便于业务代码通过 .catch() 捕获
     return Promise.reject(error);
-  },
+  }
 );
 // 5. 导出自定义的 axios 实例 myAxios
 // 其他业务文件可通过 import myAxios from '@/utils/request'（路径别名）引入并使用
