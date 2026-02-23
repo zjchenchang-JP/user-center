@@ -23,7 +23,7 @@ import static com.zjcc.usercenter.utils.StaticConst.ADMIN_ROLE;
 import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 
 @RestController
-@CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true") // 临时解决跨越问题
+@CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "http://43.163.195.79","https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true") // 临时解决跨越问题
 @RequestMapping("/api/user")
 @Slf4j
 public class UserController {
