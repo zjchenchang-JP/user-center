@@ -1,0 +1,136 @@
+# ======================== Docker Compose 配置文件版本 ========================
+# 指定 docker-compose 文件的语法版本
+# 3.8 是一个较新且稳定的版本，支持大多数常用功能
+version: '3.8'
+
+# ======================== 服务定义区域 ========================
+# 定义所有需要运行的容器服务（可以定义多个服务）
+services:
+  # ------------------------ 用户中心后端服务 ------------------------
+  # 服务名称，可以自定义，用于 docker-compose 命令中引用该服务
+  user-center-app:
+    # ======================== 构建配置 ========================
+    build:
+      # 构建上下文路径：指定 Dockerfile 所在的目录
+      # "./zjcc-user-center-backend" 表示从当前目录下的后端项目目录构建
+      context: ./zjcc-user-center-backend
+      # 指定使用的 Dockerfile 文件名
+      # 默认会在 context 目录下查找名为 "Dockerfile" 的文件
+      dockerfile: Dockerfile
+
+    # ======================== 容器基本配置 ========================
+    # 容器名称：给容器指定一个固定的名称，方便管理和查看
+    # 如果不指定，会自动生成一个随机名称（如 user-center-app-1）
+    container_name: user-center-app
+
+    # 重启策略：定义容器在什么情况下应该自动重启
+    # "always" - 无论容器是因为正常退出还是异常退出，都会自动重启
+    #           除非手动执行 docker stop，否则容器会一直运行
+    # 其他可选值：
+    #   "no" - 不自动重启（默认值）
+    #   "on-failure" - 只有在容器非正常退出（退出码非0）时才重启
+    #   "unless-stopped" - 除非手动停止，否则总是重启（包括 Docker 守护进程重启）
+    restart: always
+
+    # ======================== 网络配置 ========================
+    # 网络模式：设置容器的网络连接方式
+    # "host" - 容器使用宿主机的网络命名空间
+    #          优点：
+    #            1. 容器和宿主机共享网络，网络性能最好（没有 NAT 转换损耗）
+    #            2. 容器访问外部服务时，使用的是宿主机的 IP 地址
+    #            3. 解决了 MySQL 服务器 IP 白名单问题（因为外部 MySQL 看到的是云服务器 IP）
+    #          缺点：
+    #            1. 容器端口和宿主机端口不能冲突
+    #            2. 失去了容器网络隔离的安全性
+    # 其他常用模式：
+    #   "bridge" - 默认模式，容器有独立的网络 IP，通过 NAT 访问外网
+    #   "none" - 容器没有网络
+    # 如果使用 bridge 模式，需要配置 ports 映射（见下方注释）
+    network_mode: host
+
+    # ======================== 环境变量配置 ========================
+    # 设置容器内的环境变量，这些变量会在容器启动时注入
+    # Spring Boot 会读取这些环境变量作为配置参数
+    environment:
+      # 设置容器时区
+      # "TZ=Asia/Shanghai" 将时区设置为中国标准时间（东八区）
+      # 如果不设置，默认使用 UTC 时间，可能会导致日志时间和业务时间不一致
+      - TZ=Asia/Shanghai
+
+      # Spring Boot 激活的配置文件（Profile）
+      # "SPRING_PROFILES_ACTIVE=prod" 告诉 Spring Boot 使用 application-prod.yml 配置
+      # 这样就可以根据不同环境（dev/test/prod）使用不同的配置（数据库地址、日志级别等）
+      - SPRING_PROFILES_ACTIVE=prod
+
+    # ======================== 端口映射配置 ========================
+    # 只有使用 bridge 网络模式时才需要配置端口映射
+    # 如果使用 host 网络模式（上面配置的），容器直接使用宿主机端口，不需要映射
+    # 格式： "宿主机端口:容器端口"
+    # 例如："- 8080:8080" 表示将宿主机的 8080 端口映射到容器的 8080 端口
+    # 注意：
+    #   1. 左边是宿主机端口（外部访问的端口）
+    #   2. 右边是容器内部端口（应用监听的端口）
+    #   3. 可以映射多个端口："- 8080:8080"  "- 8081:8081"
+    #ports:
+    #  - "8080:8080"
+
+    # ======================== 健康检查配置 ========================
+    # 定期检查容器是否健康运行，如果不健康可以自动重启或标记为 unhealthy
+    healthcheck:
+      # 健康检查命令：用于检测应用是否正常运行
+      # "CMD" - 执行后面的命令
+      # "wget" - Linux 下载工具，用于发送 HTTP 请求
+      # "--quiet" - 安静模式，不输出下载进度
+      # "--tries=1" - 只尝试连接一次
+      # "--spider" - 只检查页面是否存在，不下载内容
+      # "http://localhost:8080/actuator/health" - Spring Boot Actuator 健康检查端点
+      # 注意：你的项目需要添加 spring-boot-starter-actuator 依赖
+      # 如果没有 Actuator，可以改为访问你的 API 接口，如：http://localhost:8080/api/user/test
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+
+      # 检查间隔时间：每隔多久执行一次健康检查
+      # "30s" 表示每 30 秒检查一次
+      interval: 30s
+
+      # 检查超时时间：单次健康检查命令的最长执行时间
+      # 如果超过这个时间，这次检查判定为失败
+      # "10s" 表示最多等待 10 秒
+      timeout: 10s
+
+      # 重试次数：连续失败多少次后，将容器标记为 unhealthy（不健康）
+      # "3" 表示连续 3 次检查失败才标记为不健康
+      # 这样可以避免因网络抖动导致的误判
+      retries: 3
+
+      # 启动宽限期：容器启动后，等待多长时间才开始进行健康检查
+      # "40s" 表示容器启动后的前 40 秒内不进行健康检查
+      # 原因：应用启动需要时间（加载数据库连接池、初始化框架等），启动期间健康检查会失败
+      # 设置这个宽限期可以避免启动期间的误判
+      start_period: 40s
+
+  # 主要配置说明：
+  # 1. version: '3.8' - Docker Compose 文件语法版本
+  # 2. services - 定义容器服务
+  # 3. build - 构建镜像的配置
+  # 4. container_name - 容器名称
+  # 5. restart: always - 自动重启策略
+  # 6. network_mode: host - 使用宿主机网络（解决数据库 IP 白名单问题）
+  # 7. environment - 环境变量（时区、Spring Profile）
+  # 8. ports - 端口映射（host 模式下不需要）
+  # 9. healthcheck - 健康检查配置
+
+  # ⚠️ 注意事项：
+
+  # 健康检查使用了 http://localhost:8080/actuator/health，需要确保你的项目已添加 spring-boot-starter-actuator 依赖。
+
+  # 如果没有这个依赖，有两种解决方案：
+
+  # 方案 1：添加 Actuator 依赖
+  # <dependency>
+  #     <groupId>org.springframework.boot</groupId>
+  #     <artifactId>spring-boot-starter-actuator</artifactId>
+  # </dependency>
+
+  # 方案 2：修改健康检查地址
+  # 将 test 改为你项目中的一个实际接口，比如：
+  # test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/user/login"]

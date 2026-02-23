@@ -17,3 +17,4 @@ WORKDIR /app
 COPY --from=builder /app/target/user-center-0.0.1-SNAPSHOT.jar ./app.jar
 # 定义启动命令，核心运行操作
 CMD ["java","-jar","app.jar","--spring.profiles.active=prod","--server.port=8080"]
+# 还可以加上 "java -Xms256m -Xmx512m" 限制 Java 堆内存的大小，防止其无限制地申请内存
