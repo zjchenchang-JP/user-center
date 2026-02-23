@@ -270,6 +270,22 @@ docker rm test-app
 lsof -i:8080 #查看8080端口占用
 
 netstat -nltp #监听运行的 tcp协议进程
+
+# 排查日志
+# 方式1：用容器名称查看（推荐，你这里容器名是user-center-app）
+docker logs user-center-app
+
+# 方式2：用容器ID查看（错误提示里的ID：5d9a384d0ac68...）
+docker logs 5d9a384d0ac6832f747609b92cb15abb39d35f8a7d7f9c0eda5e5442f1873be8
+
+# 查看容器退出状态
+docker ps -a | grep user-center-app
+# 1. 停止并删除旧容器
+docker stop user-center-app && docker rm user-center-app
+
+# 2. 重新启动容器（不加 -d，前台运行，直接看日志）
+docker run -p 8080:8080 --name user-center-app user-center:v1
+
 ```
 
 ### 总结
@@ -339,3 +355,80 @@ docker logs 容器ID
 1. 技术层面：`docker build -t user-center:v1 .` 里的 `user-center`（镜像名）和 JAR 包名里的 `user-center` 无强制绑定，镜像名可自定义，不影响容器运行；
 2. 实践层面：建议两者保持一致，核心是为了**便于识别、管理和符合团队规范**；
 3. 关键重点：Docker 镜像名是“自定义标签”，JAR 包名由 `pom.xml` 的 `<artifactId>` 决定，两者的关联是“人为约定”而非“技术强制”。
+
+---
+## 日志排查
+你遇到的问题是执行 `docker exec` 时提示容器未运行，想知道如何排查容器无法启动的日志，我会先解释这个错误的原因，再一步步教你查看日志、定位问题的方法，帮你快速找到容器启动失败的根源。
+
+### 1. 先理解错误原因
+`container is not running` 说明容器启动后**立即退出**了（可能是启动命令错误、JAR 包找不到、端口被占用等），所以无法进入容器。此时第一步要做的是**查看容器的启动日志**，而不是尝试进入容器。
+
+### 2. 排查日志的核心步骤（按优先级排序）
+#### 步骤 1：查看容器的启动日志（最关键）
+无论容器是否运行，都可以用 `docker logs` 命令查看它的启动/运行日志，这是定位问题的核心：
+```bash
+# 方式1：用容器名称查看（推荐，你这里容器名是user-center-app）
+docker logs user-center-app
+
+# 方式2：用容器ID查看（错误提示里的ID：5d9a384d0ac68...）
+docker logs 5d9a384d0ac6832f747609b92cb15abb39d35f8a7d7f9c0eda5e5442f1873be8
+```
+**日志里的常见错误及解决**：
+- `Error: Unable to access jarfile /app/target/user-center-0.0.1-SNAPSHOT.jar`：JAR 包路径写错/不存在 → 核对 Dockerfile 里的 JAR 包名和实际打包的名称一致；
+- `Address already in use`：端口被占用 → 改 `--server.port` 或杀掉占用端口的进程；
+- `Application failed to start` + 配置错误：Spring Boot 配置问题（如数据库连接失败）→ 检查 `application-prod.yml` 配置；
+- `no such file or directory`：启动命令语法错误 → 核对 CMD 命令的格式（比如通配符版本要加 `sh -c`）。
+
+#### 步骤 2：查看容器状态，确认退出原因
+先执行 `docker ps -a` 查看容器的详细状态：
+```bash
+docker ps -a | grep user-center-app
+```
+输出示例（重点看 `STATUS` 和 `EXIT CODE`）：
+```
+5d9a384d0ac6   user-center:v1   "sh -c 'java -jar /app/ta…"   2 minutes ago   Exited (1) 2 minutes ago   user-center-app
+```
+- `EXIT CODE`（退出码）：
+  - `0`：正常退出；
+  - `1`：一般是启动命令/应用运行错误（如 JAR 包找不到、配置错误）；
+  - `137`：容器被强制杀死（如内存不足、手动 `kill`）；
+  - `143`：容器正常停止（`docker stop`）。
+
+#### 步骤 3：重新启动容器并实时查看日志
+如果日志信息不全，可以先删除失效容器，重新启动并实时打印日志：
+```bash
+# 1. 停止并删除旧容器
+docker stop user-center-app && docker rm user-center-app
+
+# 2. 重新启动容器（不加 -d，前台运行，直接看日志）
+docker run -p 8080:8080 --name user-center-app user-center:v1
+```
+这种方式会在终端直接输出容器启动的所有日志，包括报错信息，比 `docker logs` 更直观，能看到实时的错误。
+
+#### 步骤 4：如果日志无报错但容器仍退出（进阶排查）
+如果日志显示“启动成功”但容器还是退出，大概率是应用启动后“前台运行”配置问题（Spring Boot 默认是前台运行，除非被修改）：
+- 检查 Dockerfile 的 CMD 命令是否正确：Spring Boot JAR 包必须前台运行，不能加 `&` 后台运行（比如 `java -jar xxx.jar &` 会导致容器启动后立即退出）；
+- 示例错误 CMD（会导致容器退出）：
+  ```dockerfile
+  # 错误：加了&，应用后台运行，容器无前台进程就会退出
+  CMD ["sh", "-c", "java -jar /app/target/*.jar --spring.profiles.active=prod --server.port=8080 &"]
+  ```
+- 正确 CMD（无&，前台运行）：
+  ```dockerfile
+  CMD ["sh", "-c", "java -jar /app/target/*.jar --spring.profiles.active=prod --server.port=8080"]
+  ```
+
+### 3. 常见问题快速排查清单
+| 日志报错关键词 | 大概率原因 | 解决方法 |
+|----------------|------------|----------|
+| `Unable to access jarfile` | JAR 包路径/名称错误 | 核对 Dockerfile 里的 JAR 包名和本地打包的一致 |
+| `Address already in use` | 端口被占用 | 改 `--server.port` 或杀掉宿主机占用端口的进程 |
+| `Database connection failed` | 数据库配置错误 | 检查 `application-prod.yml` 中的数据库地址/账号/密码 |
+| `no such file or directory` | CMD 命令语法错误 | 通配符版本必须用 `sh -c` 包裹命令 |
+| `Exited (137)` | 内存不足 | 启动容器时加 `-m 1g` 分配内存（`docker run -m 1g ...`） |
+
+### 总结
+1. 容器未运行时，优先用 `docker logs 容器名/ID` 查看启动日志，这是定位问题的核心；
+2. 其次通过 `docker ps -a` 查看容器退出码，快速判断错误类型（退出码1=应用错误，137=内存不足）；
+3. 若日志不清晰，可前台启动容器（不加 `-d`），实时查看报错信息；
+4. 常见问题多为 JAR 包路径错误、端口占用、CMD 命令语法错误，对照排查清单可快速定位。
