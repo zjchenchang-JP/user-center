@@ -383,3 +383,7 @@ docker-compose up -d --build
 
 ● 需要我帮你修改 Dockerfile 来支持 JAVA_OPTS 环境变量吗？或者帮你使用 docker-compose 来部署？
 
+本项目实际使用docker 启动命令
+```bash
+docker run -d --network=host -m 1024m --ulimit nofile=65535:65535 --name user-center-app user-app:v1
+```
