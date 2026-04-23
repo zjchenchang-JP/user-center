@@ -4,6 +4,7 @@ import com.zjcc.usercenter.model.domain.User;
 import com.baomidou.mybatisplus.extension.service.IService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.util.List;
 
 /**
 * @author 86187
@@ -37,4 +38,20 @@ public interface UserService extends IService<User> {
      * @return 注销成功标志
      */
     boolean userLogout(HttpServletRequest request);
+
+    User getSafetyUser(User originUser);
+
+    /**
+     * 根据标签名搜索用户
+     * @param tagNameList 标签名列表
+     * @return 用户列表
+     */
+    List<User> searchUsersByTags(List<String> tagNameList);
+
+    /**
+     * 根据标签名搜索用户（内存方式）
+     * @param tagNameList 标签名列表
+     * @return 用户列表
+     */
+    List<User> searchUsersByTagsMemory(List<String> tagNameList);
 }
