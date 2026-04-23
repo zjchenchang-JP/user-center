@@ -10,6 +10,11 @@ spring:
     password: 123456
   session:
     timeout: 86400 # 86400秒、1天 session失效
+  mvc:
+    pathmatch:
+      matching-strategy: ANT_PATH_MATCHER
+  profiles:
+    active: dev # 默认环境
 #    cookie:
 #      # 关键1：绑定到前端访问的域名（必须和前端一致）
 #      domain: 43.163.195.79

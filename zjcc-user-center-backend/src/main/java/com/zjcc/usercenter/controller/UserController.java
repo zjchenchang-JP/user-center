@@ -11,6 +11,7 @@ import com.zjcc.usercenter.model.domain.UserRegisterRequest;
 import com.zjcc.usercenter.service.UserService;
 import com.zjcc.usercenter.service.impl.UserServiceImpl;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,7 +24,9 @@ import static com.zjcc.usercenter.utils.StaticConst.ADMIN_ROLE;
 import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 
 @RestController
-@CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "http://43.163.195.79","https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true") // 临时解决跨越问题
+// 临时解决跨越问题
+// @CrossOrigin // 默认支持所有网站都能跨域访问 *
+@CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "http://43.163.195.79","https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true")
 @RequestMapping("/api/user")
 @Slf4j
 public class UserController {
@@ -103,8 +106,19 @@ public class UserController {
         List<User> userList = userService.list(queryWrapper);
         // TODO 全查询后 应该添加分页机制
         // 脱敏后返回
-        List<User> users = userList.stream().map(UserServiceImpl::getSafetyUser).collect(Collectors.toList());
+        List<User> users = userList.stream().map(user -> userService.getSafetyUser(user)).collect(Collectors.toList());
         return ResponseResult.ok(users);
+    }
+
+    // 根据标签名搜索用户
+    @GetMapping("/search/tags")
+    public BaseResponse<List<User>> searchUsersByTags(@RequestParam(required = false) List<String> tagNameList) {
+        if (CollectionUtils.isEmpty(tagNameList)) {
+            log.warn("未传入标签 !");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        List<User> userList = userService.searchUsersByTags(tagNameList);
+        return ResponseResult.ok(userList);
     }
 
     // 删除用户

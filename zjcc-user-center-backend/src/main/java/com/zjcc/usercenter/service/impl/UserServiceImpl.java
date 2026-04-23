@@ -2,6 +2,8 @@ package com.zjcc.usercenter.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.User;
@@ -15,6 +17,9 @@ import org.springframework.util.DigestUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.zjcc.usercenter.utils.StaticConst.*;
 
@@ -230,23 +235,90 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     /**
      * Desensitization 用户脱敏
      *
-     * @param loginUser 登录用户
+     * @param originUser 登录用户
      * @return safetyUser  信息脱敏后的用户
      */
-    public static User getSafetyUser(User loginUser) {
+    @Override
+    public User getSafetyUser(User originUser) {
         User safetyUser = new User();
-        safetyUser.setId(loginUser.getId());
-        safetyUser.setUsername(loginUser.getUsername());
-        safetyUser.setUserAccount(loginUser.getUserAccount());
-        safetyUser.setAvatarUrl(loginUser.getAvatarUrl());
-        safetyUser.setGender(loginUser.getGender());
-        safetyUser.setPhone(loginUser.getPhone());
-        safetyUser.setEmail(loginUser.getEmail());
-        safetyUser.setUserStatus(loginUser.getUserStatus());
-        safetyUser.setCreateTime(loginUser.getCreateTime());
-        safetyUser.setUserRole(loginUser.getUserRole());
-        safetyUser.setPlanetCode(loginUser.getPlanetCode());
+        safetyUser.setId(originUser.getId());
+        safetyUser.setUsername(originUser.getUsername());
+        safetyUser.setUserAccount(originUser.getUserAccount());
+        safetyUser.setAvatarUrl(originUser.getAvatarUrl());
+        safetyUser.setGender(originUser.getGender());
+        safetyUser.setPhone(originUser.getPhone());
+        safetyUser.setEmail(originUser.getEmail());
+        safetyUser.setUserStatus(originUser.getUserStatus());
+        safetyUser.setCreateTime(originUser.getCreateTime());
+        safetyUser.setUserRole(originUser.getUserRole());
+        safetyUser.setPlanetCode(originUser.getPlanetCode());
+        safetyUser.setProfile(originUser.getProfile());
+        safetyUser.setTags(originUser.getTags());
         return safetyUser;
+    }
+
+    @Override
+    public List<User> searchUsersByTags(List<String> tagNameList) {
+        if (tagNameList == null || tagNameList.isEmpty()) {
+            return Collections.emptyList();
+        }
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // // 方式1: AND 查询（同时包含所有标签）
+        // tagNameList.forEach(tagName -> queryWrapper.like("tags", tagName));
+        //
+        // // 方式2: OR 查询（包含任一标签）
+        // -- 外层自动加 AND
+        // ...等价SQL =>  AND (tags LIKE '%java%' OR tags LIKE '%python%')
+        // // queryWrapper.and(wrapper -> {
+        // //     tagNameList.forEach(tagName -> wrapper.or().like("tags", tagName));
+        // //     return wrapper;
+        // // });
+
+        for (String tagName : tagNameList) {
+            queryWrapper.like("tags", tagName);
+        }
+        List<User> userList = userMapper.selectList(queryWrapper);
+
+        return userList.stream()
+                .map(this::getSafetyUser)
+                .collect(Collectors.toList());
+    }
+
+
+    @Override
+    public List<User> searchUsersByTagsMemory(List<String> tagNameList) {
+        if (tagNameList == null || tagNameList.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Gson gson = new Gson();
+        // 1. 查询所有用户
+        List<User> allUsers = userMapper.selectList(new QueryWrapper<>());
+        // 2. 在内存中过滤符合条件的用户（OR查询：包含任一标签即可）
+        // 将JSON字符串转为List<String>
+        // 判断是否包含任一查询标签
+        return allUsers.stream()
+                .filter(user -> {
+                    String tagsJson = user.getTags();
+                    if (StringUtils.isBlank(tagsJson)) {
+                        return false;
+                    }
+                    // 将JSON字符串转为Set<String>
+                    Set<String> userTags = gson.fromJson(tagsJson, new TypeToken<Set<String>>() {}.getType());
+                    // // if (userTags == null || userTags.isEmpty()) {
+                    // //     return false;
+                    // // }
+                    // userTags = Optional.ofNullable(userTags).orElse(new HashSet<>());
+                    // // 判断是否包含全部查询标签
+                    // // for (String tagName : tagNameList) {
+                    // //     if (!userTags.contains(tagName)) {
+                    // //         return false;
+                    // //     }
+                    // // }
+                    // // return tagNameList.stream().allMatch(userTags::contains);
+                    // return userTags.containsAll(tagNameList);
+                    return userTags != null && userTags.containsAll(tagNameList);
+
+                }).map(this::getSafetyUser).collect(Collectors.toList());
     }
 }
 
