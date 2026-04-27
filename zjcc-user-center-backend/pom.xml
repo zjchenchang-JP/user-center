@@ -84,6 +84,18 @@
             <version>3.1.1</version>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-data-redis -->
+        <!-- springboot里引入redis，操作redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- spring-session 和 redis 的整合，使得自动将 session 存储到 redis 中 -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
+
     </dependencies>
     <dependencyManagement>
         <dependencies>

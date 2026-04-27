@@ -2,6 +2,7 @@ package com.zjcc.usercenter.model.domain;
 
 import com.baomidou.mybatisplus.annotation.*;
 
+import java.io.Serializable;
 import java.util.Date;
 import lombok.Data;
 
@@ -11,7 +12,10 @@ import lombok.Data;
  */
 @TableName(value ="`user`")
 @Data
-public class User {
+public class User implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
     /**
      * 主键ID
      */
