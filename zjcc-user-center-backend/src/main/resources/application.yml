@@ -9,12 +9,26 @@ spring:
     username: root
     password: 123456
   session:
-    timeout: 86400 # 86400秒、1天 session失效
+    timeout: 86400 # 86400秒 session失效
+    store-type: redis # 从redis 读写session；默认是 none，表示存储在单台服务器内存
   mvc:
     pathmatch:
       matching-strategy: ANT_PATH_MATCHER
   profiles:
     active: dev # 默认环境
+  # redis 配置
+  redis:
+    port: 6379
+    host: 127.0.0.1
+    database: 0
+    password: 123456 # Redis 密码
+    timeout: 3000ms # 连接超时时间
+    lettuce: # 使用 Lettuce 连接池
+      pool:
+        max-active: 8 # 连接池最大连接数
+        max-idle: 8   # 连接池最大空闲连接数
+        min-idle: 0   # 连接池最小空闲连接数
+        max-wait: -1ms # 连接池最大阻塞等待时间
 #    cookie:
 #      # 关键1：绑定到前端访问的域名（必须和前端一致）
 #      domain: 43.163.195.79
