@@ -33,7 +33,8 @@ public interface UserService extends IService<User> {
 
     /**
      * 用户注销
-     *
+     * Spring MVC 在调用 Controller 方法时，会自动注入 HttpServletRequest 对象
+     * 如果请求能进入这个方法，request 一定非空。如果为 null，Spring 会在方法调用前就抛出异常
      * @param request servlet请求对象
      * @return 注销成功标志
      */
@@ -54,4 +55,36 @@ public interface UserService extends IService<User> {
      * @return 用户列表
      */
     List<User> searchUsersByTagsMemory(List<String> tagNameList);
+
+    /**
+     * 获取当前登录用户
+     * @param request
+     * @return
+     */
+    User getCurrentUser(HttpServletRequest request);
+
+
+    /**
+     * 更新用户信息
+     * @param user 更新用户信息
+     * @param loginUser 当前登录用户
+     * @return
+     */
+    int updateUser(User user, User loginUser);
+
+    /**
+     * 是否是管理员
+     * 通用方法，方便其他非用户接口 也能调用（注入userService即可）
+     * @param request
+     * @return
+     */
+    boolean isAdmin(HttpServletRequest request);
+
+    /**
+     *  是否管理员
+     * @param user
+     * @return
+     */
+    boolean isAdmin(User user);
+
 }

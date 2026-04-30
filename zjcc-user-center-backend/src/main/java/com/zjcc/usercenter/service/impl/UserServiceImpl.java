@@ -320,6 +320,60 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
                 }).map(this::getSafetyUser).collect(Collectors.toList());
     }
+
+    @Override
+    public User getCurrentUser(HttpServletRequest request) {
+        if (request == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = (User) request.getSession().getAttribute(USER_LOGIN_STATE);
+        if (loginUser == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN);
+        }
+        return loginUser;
+    }
+
+    @Override
+    public int updateUser(User user, User loginUser) {
+        // 管理员可以修改任何用户；非管理员只能修改自己的信息
+        // controller 层已保障user 和loginUser 不为空
+        if (user.getId() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        // 非管理员 且 修改的不是自己的信息
+        if (!isAdmin(loginUser) && user.getId() != loginUser.getId()) {
+            throw new BusinessException(ErrorCode.NO_AUTH);
+        }
+        // 触发更新
+        return this.baseMapper.updateById(user);
+    }
+
+    // 鉴权 必须管理者角色才能操作‘用户管理接口’
+    @Override
+    public boolean isAdmin(HttpServletRequest request) {
+        // Java 16+ 的模式匹配特性
+        // HttpSession session = request.getSession(false);
+        // if (!(session != null && session.getAttribute(USER_LOGIN_STATE) instanceof User currentUser)) {
+        //     throw new BusinessException(ErrorCode.NOT_LOGIN);
+        // }
+        // return currentUser.getUserRole() == ADMIN_ROLE;
+
+
+        // 从session获取当前登录用户
+        Object loginUser = request.getSession().getAttribute(USER_LOGIN_STATE);
+        if (!(loginUser instanceof User)) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN);
+        }
+        // 管理员 返回true
+        User currentUser = (User) loginUser;
+        return currentUser.getUserRole() == ADMIN_ROLE;
+    }
+
+    @Override
+    public boolean isAdmin(User user) {
+        return user != null && user.getUserRole() == ADMIN_ROLE;
+    }
+
 }
 
 

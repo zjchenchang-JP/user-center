@@ -1,5 +1,6 @@
 package com.zjcc.usercenter.config;
 
+import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -11,6 +12,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * 作用
  * 告诉浏览器：允许哪些源（域名）访问此资源
  */
+@Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override

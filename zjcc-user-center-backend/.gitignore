@@ -37,4 +37,5 @@ build/
 ### VS Code ###
 .vscode/
 
-
+### Redis 持久化文件；Redis 重启后可以从这个文件恢复数据
+dump.rdb

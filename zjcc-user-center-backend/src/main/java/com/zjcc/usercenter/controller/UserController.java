@@ -1,6 +1,7 @@
 package com.zjcc.usercenter.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+// import javax.validation.constraints.NotNull;  // 或 Jakarta validation
 import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
@@ -9,7 +10,6 @@ import com.zjcc.usercenter.model.domain.User;
 import com.zjcc.usercenter.model.domain.UserLoginRequest;
 import com.zjcc.usercenter.model.domain.UserRegisterRequest;
 import com.zjcc.usercenter.service.UserService;
-import com.zjcc.usercenter.service.impl.UserServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -26,7 +26,7 @@ import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 @RestController
 // 临时解决跨越问题
 // @CrossOrigin // 默认支持所有网站都能跨域访问 *
-@CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "http://43.163.195.79","https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true")
+// @CrossOrigin(origins = {"http://localhost:5173","http://localhost:3000", "http://43.163.195.79","https://tracheoscopic-collectedly-barb.ngrok-free.dev"}, allowCredentials = "true")
 @RequestMapping("/api/user")
 @Slf4j
 public class UserController {
@@ -74,8 +74,15 @@ public class UserController {
         // 条件不成立：当 stateUser 为 null 时，if (stateUser instanceof User) 条件为 false
         if (stateUser instanceof User) {
             // instanceof 检查通过，已确保 stateUser 不为 null
-            User curremtUser = (User) stateUser;
-            return ResponseResult.ok(curremtUser);
+            User sessionUser = (User) stateUser;
+            // 从数据库查最新数据，避免 Session 中的对象是旧数据
+            // 刚更新成功，返回用户界面，此时查询的是session中的旧数据。
+            User freshUser = userService.getById(sessionUser.getId());
+            if (freshUser != null) {
+                // 更新cookie
+                request.getSession().setAttribute(USER_LOGIN_STATE, freshUser);
+                return ResponseResult.ok(freshUser);
+            }
         }
         throw new BusinessException(ErrorCode.NOT_LOGIN);
     }
@@ -87,14 +94,13 @@ public class UserController {
         return ResponseResult.ok(result);
     }
 
-
     /**
      * 用户管理接口 (仅管理员可见)
      */
     // 查询所有用户
     @GetMapping("/search")
     public BaseResponse<List<User>> searchUser(String username, HttpServletRequest request) {
-        if (!isAdmin(request)) {
+        if (!userService.isAdmin(request)) {
             log.warn("缺少管理员权限!");
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
@@ -106,7 +112,9 @@ public class UserController {
         List<User> userList = userService.list(queryWrapper);
         // TODO 全查询后 应该添加分页机制
         // 脱敏后返回
-        List<User> users = userList.stream().map(user -> userService.getSafetyUser(user)).collect(Collectors.toList());
+        List<User> users = userList.stream()
+                .map(user -> userService.getSafetyUser(user))
+                .collect(Collectors.toList());
         return ResponseResult.ok(users);
     }
 
@@ -121,35 +129,32 @@ public class UserController {
         return ResponseResult.ok(userList);
     }
 
+    /**
+     * 更新用户信息
+     * @param user 待更新用户信息
+     * @param request
+     * @return 修改成功的记录数
+     */
+    @PostMapping("/update")
+    public BaseResponse<Integer> updateUser(@RequestBody User user, HttpServletRequest request) {
+        // 参数校验
+        if (user == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = userService.getCurrentUser(request);
+        int result = userService.updateUser(user, loginUser);
+        return ResponseResult.ok(result);
+    }
+
+
     // 删除用户
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteUser(@RequestBody Long id, HttpServletRequest request) {
-        if (!isAdmin(request)) {
+        if (!userService.isAdmin(request)) {
             log.warn("缺少管理员权限");
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
-        boolean b = userService.removeById(id);
-        return ResponseResult.ok(b);
+        return ResponseResult.ok(userService.removeById(id));
     }
 
-
-    // 鉴权 必须管理者角色才能操作‘用户管理接口’
-    private boolean isAdmin(HttpServletRequest request) {
-        // 从session获取当前登录用户
-        Object stateUser = request.getSession().getAttribute(USER_LOGIN_STATE);
-        // null 不是任何类型：stateUser instanceof User 在 stateUser 为 null 时会返回 false
-        // 安全的类型检查：instanceof 操作符本身就包含了 null 值检查
-        // 条件不成立：当 stateUser 为 null 时，if (stateUser instanceof User) 条件为 false
-        if (stateUser instanceof User) {
-            // instanceof 检查通过，已确保 stateUser 不为 null
-            User currentUser = (User) stateUser;
-            return ADMIN_ROLE == (currentUser.getUserRole());
-        }
-        // 类型转换失败
-        if (stateUser != null) {
-            return false;
-        }
-        // stateUser = null 未登录
-        throw new BusinessException(ErrorCode.NOT_LOGIN);
-    }
 }
