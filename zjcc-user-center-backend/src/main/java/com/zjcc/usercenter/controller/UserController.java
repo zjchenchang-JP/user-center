@@ -2,6 +2,7 @@ package com.zjcc.usercenter.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 // import javax.validation.constraints.NotNull;  // 或 Jakarta validation
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
@@ -76,7 +77,7 @@ public class UserController {
             // instanceof 检查通过，已确保 stateUser 不为 null
             User sessionUser = (User) stateUser;
             // 从数据库查最新数据，避免 Session 中的对象是旧数据
-            // 刚更新成功，返回用户界面，此时查询的是session中的旧数据。
+            // 否则前端显示刚更新成功，返回用户界面，此时查询的是session中的旧数据。
             User freshUser = userService.getById(sessionUser.getId());
             if (freshUser != null) {
                 // 更新cookie
@@ -146,8 +147,31 @@ public class UserController {
         return ResponseResult.ok(result);
     }
 
+    /**
+     * 主页推荐
+     * @param request
+     * @return 符号条件的用户集合
+     */
+    @GetMapping("/recommend")
+    public BaseResponse<Page<User>> recommendUsers(
+            @RequestParam(defaultValue = "10") long pageSize,
+            @RequestParam(defaultValue = "1") long pageNum,
+            HttpServletRequest request) {
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // 分页查询
+        Page<User> userPage = userService.page(new Page<>(pageNum, pageSize), queryWrapper);
+        // 对分页结果中的每条记录进行脱敏处理
+        List<User> safetyUsers = userPage.getRecords().stream()
+                .map(userService::getSafetyUser)
+                .collect(Collectors.toList());
+        userPage.setRecords(safetyUsers);
+        return ResponseResult.ok(userPage);
+    }
 
-    // 删除用户
+
+    /**
+     * 删除用户
+     */
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteUser(@RequestBody Long id, HttpServletRequest request) {
         if (!userService.isAdmin(request)) {
