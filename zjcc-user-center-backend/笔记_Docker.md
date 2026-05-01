@@ -271,6 +271,8 @@ lsof -i:8080 #查看8080端口占用
 
 netstat -nltp #监听运行的 tcp协议进程
 
+telnet mysql7.sqlpub.com 3312 #ping 端口
+
 # 排查日志
 # 方式1：用容器名称查看（推荐，你这里容器名是user-center-app）
 docker logs user-center-app
