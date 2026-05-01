@@ -541,3 +541,180 @@ timeout: 86400  # ← 这个就够了
 
 总结：你的项目当前配置已经合理，不需要额外配置 servlet。
 ```
+
+---
+
+# 2026/05/01
+## CompletableFuture 多线程并发批量插入详解
+
+### 完整代码示例
+
+```java
+@Test
+public void doConcurrencyInsertUser() {
+    StopWatch stopWatch = new StopWatch();
+    stopWatch.start();
+    final int INSERT_NUM = 100000;      // 总共插入10万条
+    final int BATCH_SIZE = 5000;        // 每批5000条
+    ArrayList<CompletableFuture<Void>> futureList = new ArrayList<>();
+
+    // 循环次数 = 100000 / 5000 = 20 次
+    for (int i = 0; i < INSERT_NUM / BATCH_SIZE; i++) {
+        ArrayList<User> users = new ArrayList<>();
+
+        // 每批生成 5000 条数据
+        for (int j = 0; j < BATCH_SIZE; j++) {
+            User user = new User();
+            user.setUsername("假数据");
+            user.setUserAccount("yusha");
+            user.setPlanetCode("23322");
+            // ... 其他字段
+            users.add(user);
+        }
+
+        // 异步执行批量插入
+        int batchNum = i;
+        CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+            System.out.println("批次 " + batchNum + "，线程：" + Thread.currentThread().getName());
+            userService.saveBatch(users, BATCH_SIZE);
+        }, executorService);
+        futureList.add(future);
+    }
+
+    // 等待所有异步任务完成
+    CompletableFuture.allOf(futureList.toArray(new CompletableFuture[]{})).join();
+
+    stopWatch.stop();
+    System.out.println("总耗时：" + stopWatch.getLastTaskTimeMillis() + "ms");
+}
+```
+
+### 核心概念：把"任务"和"结果"分开
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  CompletableFuture = 任务（做什么）+ Future（什么时候完成）  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 工作流程详解
+
+#### 第 1 步：创建异步任务（准备干活）
+
+```java
+CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+    // 这里的代码会在新线程中执行
+    userService.saveBatch(users, BATCH_SIZE);
+}, executorService);
+```
+
+**拆解：**
+
+| 部分 | 作用 | 类比 |
+|------|------|------|
+| `CompletableFuture.runAsync()` | 启动一个异步任务 | 喊一声"去干活了"，不等人做完 |
+| `() -> { ... }` | Lambda 表达式，实际要执行的代码 | 具体的活儿：插入5000条数据 |
+| `executorService` | 线程池，提供工作线程 | 工人团队（16个人） |
+| `CompletableFuture<Void>` | 返回值：Future 表示"这个任务的承诺" | 一张"取货单"，以后可以查进度 |
+
+**为什么又 Runnable 又 Future？**
+
+```
+CompletableFuture.runAsync(Runnable 任务) 返回 CompletableFuture
+                    ↓                        ↓
+              "做什么事"              "什么时候做完"
+```
+
+- `Runnable` 部分：告诉它要做什么（插入数据）
+- `Future` 部分：给你一个"凭证"，可以查状态、等待完成
+
+#### 第 2 步：收集所有任务的"凭证"
+
+```java
+futureList.add(future);  // 把凭证保存起来
+```
+
+循环 20 次，`futureList` 里就有 20 张"凭证"。
+
+#### 第 3 步：等待所有任务完成
+
+```java
+CompletableFuture.allOf(futureList.toArray(new CompletableFuture[]{})).join();
+```
+
+**拆解：**
+
+| 方法 | 作用 |
+|------|------|
+| `allOf(...)` | 把多个 Future 合并成一个大 Future |
+| `.join()` | **阻塞等待**，直到所有任务都完成 |
+
+**类比：**
+- 你点了 20 份外卖（同时下单）
+- `allOf` 拿到 20 张订单号
+- `join()` 就坐在门口等，直到 20 份都送到
+
+### 完整流程图
+
+```
+主线程
+  │
+  ├─ 循环第 1 次
+  │   └─ 创建任务1 → 提交给线程池 → 返回 future1 ─────┐
+  │                                                  │
+  ├─ 循环第 2 次                                    │
+  │   └─ 创建任务2 → 提交给线程池 → 返回 future2 ─────┤
+  │                                                  │
+  ├─ 循环第 3 次                                    │ 线程池（16个工人）
+  │   └─ 创建任务3 → 提交给线程池 → 返回 future3 ─────┤   同时干活
+  │   ...                                           │
+  │                                                  │
+  ├─ 循环第 20 次                                   │
+  │   └─ 创建任务20 → 提交给线程池 → 返回 future20 ────┘
+  │
+  └─ allOf(future1, future2, ..., future20).join()
+      │
+      └─ 主线程阻塞，等待所有任务完成
+          │
+          └─ 当所有任务都完成 → 继续执行下面的代码
+```
+
+### 为什么用 CompletableFuture 而不是直接 execute？
+
+| 方式 | 能否等待完成 | 能否获取结果 | 能否组合任务 |
+|------|-------------|-------------|-------------|
+| `executorService.execute(Runnable)` | ❌ | ❌ | ❌ |
+| `executorService.submit(Runnable)` | ✅ 通过 Future.get() | ❌ | ❌ |
+| `CompletableFuture.runAsync()` | ✅ 通过 .join() | ❌ | ✅ 可链式调用 |
+
+**场景需要"等待所有任务完成再计时"，所以用 CompletableFuture。**
+
+### 线程池配置
+
+```java
+private ExecutorService executorService = new ThreadPoolExecutor(
+    16,                          // 核心线程数
+    100,                         // 最大线程数
+    10000,                       // 空闲线程存活时间
+    TimeUnit.MINUTES,            // 时间单位
+    new ArrayBlockingQueue<>(1000),  // 任务队列
+    new ThreadPoolExecutor.CallerRunsPolicy()  // 拒绝策略
+);
+```
+
+**参数说明：**
+- **核心线程 16**：常驻线程，立即处理任务
+- **最大线程 100**：任务多时扩展到 100 个线程
+- **队列容量 1000**：最多缓存 1000 个等待任务
+- **CallerRunsPolicy**：队列满了由调用线程（主线程）执行
+
+### 性能对比
+
+| 方式 | 1000条数据 | 10万条数据 | 说明 |
+|------|-----------|-----------|------|
+| 循环单条插入 | ~2000ms | ~200000ms | 每次一条，慢 |
+| 批量插入 | ~971ms | ~26830ms | 20个批次并行 |
+| 多线程批量 | N/A | ~26830ms | 使用 CompletableFuture |
+
+### 一句话总结
+> `CompletableFuture` = 把任务扔给线程池去做 + 给你一个凭证可以等它做完

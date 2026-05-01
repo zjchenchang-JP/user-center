@@ -383,7 +383,144 @@ docker-compose up -d --build
 
 ● 需要我帮你修改 Dockerfile 来支持 JAVA_OPTS 环境变量吗？或者帮你使用 docker-compose 来部署？
 
-本项目实际使用docker 启动命令
-```bash
-docker run -d --network=host -m 1024m --ulimit nofile=65535:65535 --name user-center-app user-app:v1
+--- 
+# 2026/05/01
+# 三、HikariDataSource closed 异常排查
+
+## 问题现象
+
+使用 CompletableFuture 多线程并发批量插入 10 万条数据时，虽然数据成功插入，但报错：
 ```
+HikariDataSource (HikariPool-1) has been closed
+```
+
+## 关键事实
+
+1. ✅ 数据库确实插入了 10 万多条数据
+2. ❌ 报错了 `HikariDataSource closed`
+3. ✅ 测试方法没有唯一索引冲突
+4. ✅ `CompletableFuture.allOf().join()` 正常等待完成
+
+## 排查过程
+
+### 疑点 1：唯一索引冲突？
+
+**排查结果：** 数据库表没有任何唯一索引（除主键外），排除此原因。
+
+### 疑点 2：allOf 没有阻塞等待？
+
+**用户的质疑：** allOf 不是会等待所有异步任务完成吗？怎么会测试方法先结束？
+
+**分析：** `allOf().join()` 确实会阻塞等待所有任务完成。但问题在于——
+
+### 疑点 3：定时任务并发冲突？
+
+**分析：** `@SpringBootTest` 会启动完整 Spring 容器，包括定时任务调度器。`InsertUser.doInsertUser()` 会在 5 秒后自动执行。
+
+**但实际情况：** 即使定时任务执行，也不会耗尽连接池（10 万条都能完成，多加 1000 条不会耗尽）。
+
+### 疑点 4：线程池生命周期问题（真正原因！）
+
+**问题代码：**
+```java
+@SpringBootTest
+class InsertUserTest {
+    // ❌ 实例变量，生命周期受 Spring 测试容器管理
+    private ExecutorService executorService = new ThreadPoolExecutor(...);
+}
+```
+
+## 根本原因
+
+**Spring 测试的清理顺序：**
+```
+1. 异步任务陆续完成，10 万条数据插入成功 ✅
+2. join() 检测到所有任务完成，解除阻塞
+3. 执行 stopWatch.stop()
+4. 打印"总耗时：26830ms"
+5. 测试方法正常结束
+6. Spring 开始清理：关闭 DataSource
+7. 但线程池中的线程可能还在尝试清理资源
+8. 报错 HikariDataSource closed（但这不影响数据已插入）
+```
+
+**为什么线程池实例变量会导致问题？**
+- 实例变量依赖 Spring 容器管理
+- Spring 测试结束时，Spring 容器开始销毁 Bean（包括 DataSource）
+- 但你的 `executorService` 不是 Spring Bean，Spring 不知道要等待它
+- DataSource 先关闭了，线程池中的线程可能还在尝试获取连接
+
+## 解决方案
+
+### 方案 1：改为静态变量（推荐）
+
+```java
+@SpringBootTest
+class InsertUserTest {
+
+    @Resource
+    private UserService userService;
+
+    // ✅ 静态变量，不受 Spring 容器生命周期管理
+    private static final ExecutorService executorService = new ThreadPoolExecutor(
+            16,
+            100,
+            10000,
+            TimeUnit.MINUTES,
+            new ArrayBlockingQueue<>(1000),
+            new ThreadPoolExecutor.CallerRunsPolicy()
+    );
+
+    @Test
+    public void doConcurrencyInsertUser() {
+        // ... 原有代码不变
+    }
+}
+```
+
+**为什么这样能解决？**
+- 静态变量属于类，不依赖 Spring 容器
+- 即使测试结束，线程池仍然存在
+- 异步任务能正常完成资源清理
+- 不会在 DataSource 关闭时还持有连接
+
+### 方案 2：优雅关闭线程池
+
+```java
+@Test
+public void doConcurrencyInsertUser() {
+    // ... 原有代码
+
+    try {
+        CompletableFuture.allOf(futureList.toArray(new CompletableFuture[]{})).join();
+    } finally {
+        // 优雅关闭线程池
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+
+        stopWatch.stop();
+        System.out.println("总耗时：" + stopWatch.getLastTaskTimeMillis() + "ms");
+    }
+}
+```
+
+## 总结
+
+| 现象 | 原因 | 解决方案 |
+|------|------|---------|
+| 数据插入成功 ✅ | 异步任务正常完成 | 无需修改 |
+| 报 HikariDataSource closed | 线程池是实例变量，Spring 清理顺序问题 | 改为 `static final` |
+| 测试仍然显示"通过" | 异常发生在清理阶段，不影响测试逻辑 | 可忽略，但建议修复 |
+
+## 核心结论
+
+**数据插入成功，说明 `allOf().join()` 确实等待了所有任务完成。报错发生在测试方法结束后的清理阶段，而不是异步任务执行期间。**
+
+将线程池改为 `static final` 可以彻底解决这个问题。
+
