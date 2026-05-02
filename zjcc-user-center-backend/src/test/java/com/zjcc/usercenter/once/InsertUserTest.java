@@ -69,7 +69,7 @@ class InsertUserTest {
 
     /**
      * 3.多线程异步
-     * 并发批量插入用户   100000  耗时： 26830ms
+     * 并发批量插入用户   100000  耗时： 11584ms - 21170ms
      */
     @Test
     public void doConcurrencyInsertUser() {
@@ -86,14 +86,14 @@ class InsertUserTest {
             // 每批500条数据
             for (int j = 0; j < BATCH_SIZE; j++) {
                 User user = new User();
-                user.setUsername("假数据");
+                user.setUsername("2026/5/2假数据");
                 user.setUserAccount("Mock"+ j + 1);
                 user.setAvatarUrl("https://img1.baidu.com/it/u=467212011,1034521901&fm=253&fmt=auto&app=120&f=JPEG?w=500&h=500");
                 user.setProfile("fat cat");
                 user.setGender(0);
                 user.setUserPassword("12345678");
                 user.setPhone("923456789108");
-                user.setEmail("guimie-zhiren@qq.com");
+                user.setEmail("2026/5/2_g123@qq.com");
                 user.setUserStatus(0);
                 user.setUserRole(0);
                 user.setPlanetCode("23322");
