@@ -2,6 +2,14 @@ package com.zjcc.usercenter.utils;
 
 // 全局常量
 public interface StaticConst {
+    // Redis key
+    // 一般设计原则 systemId:moduleId:func:options
+    // 缓存预热
+    public static final String REDIS_PRE_RECOMMEND = "bubble:user:recommend:%s";
+
+    // redisson 分布式锁key
+    String R_DISTRIBUTED_LOCK = "bubble:precachejob:docache:lock";
+
     // MD5加密的盐值
     public static final String SALT = "z1j9c9c2";
 

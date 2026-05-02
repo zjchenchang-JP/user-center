@@ -1,7 +1,6 @@
 package com.zjcc.usercenter.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-// import javax.validation.constraints.NotNull;  // 或 Jakarta validation
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
@@ -21,7 +20,6 @@ import javax.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static com.zjcc.usercenter.utils.StaticConst.ADMIN_ROLE;
 import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 
 @RestController
@@ -33,7 +31,7 @@ import static com.zjcc.usercenter.utils.StaticConst.USER_LOGIN_STATE;
 public class UserController {
 
     @Resource
-    UserService userService;
+    private UserService userService;
 
     // 用户注册
     @PostMapping("/register")
@@ -126,6 +124,7 @@ public class UserController {
             log.warn("未传入标签 !");
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        // TODO 分页
         List<User> userList = userService.searchUsersByTags(tagNameList);
         return ResponseResult.ok(userList);
     }
@@ -150,21 +149,15 @@ public class UserController {
     /**
      * 主页推荐
      * @param request
-     * @return 符号条件的用户集合
+     * @return 符和条件的用户集合
      */
     @GetMapping("/recommend")
     public BaseResponse<Page<User>> recommendUsers(
             @RequestParam(defaultValue = "10") long pageSize,
             @RequestParam(defaultValue = "1") long pageNum,
             HttpServletRequest request) {
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        // 分页查询
-        Page<User> userPage = userService.page(new Page<>(pageNum, pageSize), queryWrapper);
-        // 对分页结果中的每条记录进行脱敏处理
-        List<User> safetyUsers = userPage.getRecords().stream()
-                .map(userService::getSafetyUser)
-                .collect(Collectors.toList());
-        userPage.setRecords(safetyUsers);
+        User loginUser = userService.getCurrentUser(request);
+        Page<User> userPage = userService.recommendUsers(loginUser, pageSize, pageNum);
         return ResponseResult.ok(userPage);
     }
 

@@ -1,6 +1,7 @@
 package com.zjcc.usercenter.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -11,6 +12,8 @@ import com.zjcc.usercenter.service.UserService;
 import com.zjcc.usercenter.mapper.UserMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
@@ -19,6 +22,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.zjcc.usercenter.utils.StaticConst.*;
@@ -36,6 +40,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     UserMapper userMapper;
+
+    @Resource
+    private RedisTemplate<String, Object> redisTemplate;
 
     // 用户注册
     @Override
@@ -240,6 +247,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     @Override
     public User getSafetyUser(User originUser) {
+        if (originUser == null) {
+            log.warn("[数据脱敏] 发现脏数据：用户信息为 null，已跳过，调用栈：",
+                     new RuntimeException("dirty-data-stack-trace"));
+            return null;
+        }
         User safetyUser = new User();
         safetyUser.setId(originUser.getId());
         safetyUser.setUsername(originUser.getUsername());
@@ -372,6 +384,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Override
     public boolean isAdmin(User user) {
         return user != null && user.getUserRole() == ADMIN_ROLE;
+    }
+
+    @Override
+    public Page<User> recommendUsers(User loginUser, long pageSize, long pageNum) {
+        String redisKey = String.format(REDIS_PRE_RECOMMEND, loginUser.getId());
+        ValueOperations<String, Object> redisOpera = redisTemplate.opsForValue();
+
+        // 先查缓存
+        Page<User> cachedPage = (Page<User>) redisOpera.get(redisKey);
+        if (cachedPage != null) {
+            return cachedPage;
+        }
+
+        // 查数据库
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        Page<User> userPage = this.page(new Page<>(pageNum, pageSize), queryWrapper);
+
+        // 脱敏
+        List<User> safetyUsers = userPage.getRecords().stream()
+                .map(this::getSafetyUser)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        userPage.setRecords(safetyUsers);
+
+        // 写缓存（5分钟过期）
+        try {
+            redisOpera.set(redisKey, userPage, 5, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.error("redis set error, key={}", redisKey, e);
+        }
+
+        return userPage;
     }
 
 }

@@ -1,5 +1,6 @@
 package com.zjcc.usercenter.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zjcc.usercenter.model.domain.User;
 import com.baomidou.mybatisplus.extension.service.IService;
 
@@ -86,5 +87,14 @@ public interface UserService extends IService<User> {
      * @return
      */
     boolean isAdmin(User user);
+
+    /**
+     * 分页获取推荐用户列表（带缓存）
+     * @param loginUser 当前登录用户
+     * @param pageSize 分页大小
+     * @param pageNum 页码
+     * @return 分页用户列表
+     */
+    Page<User> recommendUsers(User loginUser, long pageSize, long pageNum);
 
 }
