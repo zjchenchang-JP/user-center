@@ -62,7 +62,7 @@ public interface UserService extends IService<User> {
      * @param request
      * @return
      */
-    User getCurrentUser(HttpServletRequest request);
+    User loginUser(HttpServletRequest request);
 
 
     /**

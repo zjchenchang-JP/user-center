@@ -524,3 +524,130 @@ public void doConcurrencyInsertUser() {
 
 将线程池改为 `static final` 可以彻底解决这个问题。
 
+---
+
+# 2026/05/03
+## Date 时间类型时区问题详解
+
+### 问题现象
+
+Swagger 传入数据：
+```json
+{
+  "expireTime": "2026-05-5"
+}
+```
+
+数据库存储结果：
+```
+2026-05-05 09:00:00
+```
+
+**疑问**：为什么多了 9 小时？
+
+---
+
+### 原因分析
+
+时间转换链路：
+
+```
+你传入: "2026-05-5"（无具体时间）
+     ↓
+前端/JSON解析器: 补全为 "2026-05-05 00:00:00"（本地时间）
+     ↓
+Jackson反序列化: 根据 Spring 时区配置转换
+     ↓
+JDBC 驱动: 根据 serverTimezone 转换为数据库时间
+     ↓
+存入数据库: 实际存储值
+```
+
+**时区差异对照表**：
+
+| 时差 | 可能的地区 |
+|------|-----------|
+| +8 小时 | 北京时间 (UTC+8) |
+| +9 小时 | 日本时间 (UTC+9) |
+
+---
+
+### 快速解决方案
+
+#### 方案1：前端传完整时间（推荐）
+
+```json
+{
+  "expireTime": "2026-05-05 23:59:59",
+  // 或 ISO 8601 格式
+  "expireTime": "2026-05-05T23:59:59+08:00"
+}
+```
+
+#### 方案2：使用 LocalDateTime（推荐）
+
+```java
+import java.time.LocalDateTime;
+
+/**
+ * 队伍过期时间
+ * LocalDateTime 不带时区信息，避免时区转换问题
+ */
+private LocalDateTime expireTime;
+```
+
+**优点**：
+- 无时区转换，存储什么就显示什么
+- Java 8+ 推荐的时间类型
+- 不会出现 "多9小时" 的问题；日本时间 UTC+9
+
+#### 方案3：统一时区配置
+
+```yaml
+spring:
+  # Jackson 序列化时区
+  jackson:
+    time-zone: GMT+8
+  # JDBC 连接时区
+  datasource:
+    url: jdbc:mysql://localhost:3306/user_center?serverTimezone=Asia/Shanghai
+```
+
+#### 方案4：实体类字段注解
+
+```java
+import com.fasterxml.jackson.annotation.JsonFormat;
+
+/**
+ * 队伍过期时间
+ */
+@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+private Date expireTime;
+```
+
+---
+
+### 数据库时区检查
+
+```sql
+-- 检查 MySQL 全局时区
+SELECT @@global.time_zone;
+
+-- 检查 MySQL 会话时区
+SELECT @@session.time_zone;
+
+-- 检查当前系统时间
+SELECT NOW();
+```
+
+---
+
+### 推荐做法
+
+| 方案 | 优点 | 缺点 | 适用场景 |
+|------|------|------|----------|
+| **LocalDateTime** | 无时区问题，Java 8 推荐 | 需修改字段类型 | **新项目首选** |
+| `@JsonFormat` | 配置简单，不换类型 | 每个字段都要加 | 快速修复 |
+| 统一时区配置 | 一次配置，全局生效 | 需确保所有环境一致 | 已有项目 |
+
+**建议**：将 `Date` 改为 `LocalDateTime`，一劳永逸。

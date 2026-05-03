@@ -718,3 +718,207 @@ private ExecutorService executorService = new ThreadPoolExecutor(
 
 ### 一句话总结
 > `CompletableFuture` = 把任务扔给线程池去做 + 给你一个凭证可以等它做完
+
+---
+
+# 2026/05/03
+## @Transactional 事务管理详解
+
+### 一、@Transactional 注意事项
+
+| 问题 | 说明 | 本代码影响 |
+|------|------|-----------|
+| **默认传播行为** | `REQUIRED` 会加入现有事务，如果外层也有事务可能产生意外回滚 | ⚠️ 需注意 |
+| **异常类型** | 你已正确设置 `rollbackFor = Exception.class` | ✅ 正确 |
+| **仅限本类调用** | 如果被 `this.addTeam()` 内部调用，事务不会生效 | ⚠️ 需注意 |
+| **final/private/static** | 这些修饰符的方法无法被代理，事务不生效 | ❌ 无影响（public方法） |
+
+### 二、事务失效的常见场景
+
+| 场景 | 原因 | 是否影响本代码 |
+|------|------|----------------|
+| 方法不是 `public` | 代理只能拦截 public 方法 | ❌ 否（本方法是 public） |
+| **本类内部调用** | `this.method()` 绕过代理，不触发事务 | ⚠️ **是**（需注意） |
+| 异常被吞掉 | `try-catch` 没有重新抛出 | ⚠️ **是**（如果有 try-catch） |
+| final 方法 | 无法被继承/代理 | ❌ 否 |
+| static 方法 | 属于类不属于实例，无法代理 | ❌ 否 |
+| 数据库引擎不支持 | 如 MySQL 的 MyISAM | ⚠️ 检查表引擎 |
+| 多线程调用 | 线程不在原事务上下文 | ⚠️ 注意异步场景 |
+| 错误的异常类型 | 默认只回滚 `RuntimeException` | ❌ 否（已配置 Exception） |
+
+### 三、编程式事务精细化控制方案
+
+#### 1. 注入 `TransactionTemplate`
+
+```java
+@Resource
+private TransactionTemplate transactionTemplate;
+```
+
+#### 2. 改造 `addTeam` 方法
+
+```java
+@Override
+public long addTeam(Team team, User loginUser) {
+    // ========== 事务外：参数校验 ==========
+    if (team == null) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR);
+    }
+    if (loginUser == null) {
+        throw new BusinessException(ErrorCode.NOT_LOGIN);
+    }
+
+    // 队伍人数校验
+    int maxNum = Optional.ofNullable(team.getMaxNum()).orElse(0);
+    if (maxNum <= 1 || maxNum > 20) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍人数不符合要求");
+    }
+
+    // 队伍标题校验
+    String teamName = team.getName();
+    if (StringUtils.isBlank(teamName) || teamName.length() > 20) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍标题不满足要求");
+    }
+
+    // 描述校验
+    String description = team.getDescription();
+    if (StringUtils.isNotBlank(description) && description.length() > 512) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍描述过长");
+    }
+
+    // 状态校验
+    Integer status = Optional.ofNullable(team.getStatus()).orElse(0);
+    TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
+    if (statusEnum == null) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "队伍状态不符合要求");
+    }
+
+    // 密码校验
+    if (TeamStatusEnum.SECRET.equals(statusEnum)) {
+        String password = team.getPassword();
+        if (StringUtils.isBlank(password) || password.length() > 32) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码设置不正确");
+        }
+    }
+
+    // 超时时间校验
+    Date expireTime = team.getExpireTime();
+    if (expireTime != null && new Date().after(expireTime)) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "超时时间早于当前时间");
+    }
+
+    final long userId = loginUser.getId();
+
+    // ========== 事务外：用户已创建队伍数量查询 ==========
+    QueryWrapper<Team> teamQueryWrapper = new QueryWrapper<>();
+    teamQueryWrapper.eq("userId", userId);
+    long hasTeamNum = this.count(teamQueryWrapper);
+    if (hasTeamNum >= 5) {
+        throw new BusinessException(ErrorCode.PARAMS_ERROR, "最多创建5个队伍");
+    }
+
+    // ========== 事务内：数据库操作 ==========
+    return transactionTemplate.execute(status -> {
+        // 4. 插入队伍信息
+        team.setId(null);
+        team.setUserId(userId);
+        boolean isSave = this.save(team);
+        Long teamId = team.getId();
+        if (!isSave) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建队伍失败");
+        }
+
+        // 5. 插入用户-队伍关系
+        UserTeam userTeam = new UserTeam();
+        userTeam.setUserId(userId);
+        userTeam.setTeamId(teamId);
+        userTeam.setJoinTime(new Date());
+        isSave = userTeamService.save(userTeam);
+        if (!isSave) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建队伍失败");
+        }
+
+        return teamId;
+    });
+}
+```
+
+### 四、编程式事务回滚机制
+
+`TransactionTemplate` 的回滚行为：
+
+```java
+// TransactionTemplate 源码简化逻辑
+public T execute(TransactionCallback<T> action) {
+    TransactionStatus status = ...;
+    try {
+        T result = action.doInTransaction(status);
+        transactionManager.commit(status);  // 成功则提交
+        return result;
+    } catch (Exception ex) {
+        transactionManager.rollback(status);  // ❌ 任何异常都回滚
+        throw ex;
+    }
+}
+```
+
+**关键点**：
+- `TransactionTemplate` **不需要手动调用** `status.setRollbackOnly()`
+- 抛出 `BusinessException` **会自动回滚**
+- 正常返回结果 **会自动提交**
+
+### 五、@Transactional vs TransactionTemplate 对比
+
+| 对比项 | `@Transactional` | `TransactionTemplate` |
+|--------|------------------|----------------------|
+| 异常回滚 | 需要配置 `rollbackFor` | **任何异常都自动回滚** |
+| 配置方式 | 注解参数 | 编程式，无配置项 |
+| 粒度控制 | 整个方法 | 代码块级别 |
+| 回滚时机 | 异常自动触发 | 异常自动触发（也可 `status.setRollbackOnly()`） |
+| 性能 | 最小事务范围 | 可精确控制事务边界 |
+| 可读性 | 声明式，简洁 | 稍显冗长 |
+| 场景适配 | 简单CRUD | 复杂业务逻辑 |
+
+### 六、推荐做法
+
+| 场景 | 推荐方案 |
+|------|----------|
+| 当前 `addTeam` | **保持 `@Transactional`**（简单清晰） |
+| 需要部分代码不参与事务 | 改用编程式事务 |
+| 复杂业务逻辑+多次DB操作 | 编程式事务 + `TransactionTemplate` |
+| 需要手动控制回滚时机 | `status.setRollbackOnly()` |
+
+### 七、实际分析
+
+对于当前场景：
+
+```
+┌─────────────────────────────────────────────────┐
+│  校验逻辑（无 DB 操作）    │  占用时间：~1ms    │
+├─────────────────────────────────────────────────┤
+│  count 查询（有 DB 操作）  │  占用时间：~10ms   │
+├─────────────────────────────────────────────────┤
+│  插入 team + userTeam     │  占用时间：~20ms   │
+└─────────────────────────────────────────────────┘
+```
+
+**结论**：
+- 校验放不放事务内，性能差异极小（1ms vs 30ms）
+- `count` 查询本身就是 DB 操作，在事务内外都可以
+- **`@Transactional` 方案已经足够好**
+
+### 八、编程式事务适用于
+
+| 场景 | 示例 |
+|------|------|
+| 需要远程调用后再决定是否提交 | 调用第三方 API 成功后才提交 |
+| 复杂条件决定事务边界 | 根据用户等级决定是否开启事务 |
+| 需要部分操作不回滚 | 日志记录即使失败也不影响业务 |
+
+---
+
+**总结**：你的 `@Transactional` 写法没问题，编程式事务适合更复杂的场景。
+
+---
+
+
