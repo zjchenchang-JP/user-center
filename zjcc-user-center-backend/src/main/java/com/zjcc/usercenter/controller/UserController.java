@@ -7,8 +7,8 @@ import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
 import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.User;
-import com.zjcc.usercenter.model.domain.UserLoginRequest;
-import com.zjcc.usercenter.model.domain.UserRegisterRequest;
+import com.zjcc.usercenter.model.request.UserLoginRequest;
+import com.zjcc.usercenter.model.request.UserRegisterRequest;
 import com.zjcc.usercenter.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
@@ -75,7 +75,7 @@ public class UserController {
             // instanceof 检查通过，已确保 stateUser 不为 null
             User sessionUser = (User) stateUser;
             // 从数据库查最新数据，避免 Session 中的对象是旧数据
-            // 否则前端显示刚更新成功，返回用户界面，此时查询的是session中的旧数据。
+            // 否则前端显示"更新成功"，但此时界面显示的还是 session中的旧数据。
             User freshUser = userService.getById(sessionUser.getId());
             if (freshUser != null) {
                 // 更新cookie
@@ -141,7 +141,7 @@ public class UserController {
         if (user == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User loginUser = userService.getCurrentUser(request);
+        User loginUser = userService.loginUser(request);
         int result = userService.updateUser(user, loginUser);
         return ResponseResult.ok(result);
     }
@@ -156,7 +156,7 @@ public class UserController {
             @RequestParam(defaultValue = "10") long pageSize,
             @RequestParam(defaultValue = "1") long pageNum,
             HttpServletRequest request) {
-        User loginUser = userService.getCurrentUser(request);
+        User loginUser = userService.loginUser(request);
         Page<User> userPage = userService.recommendUsers(loginUser, pageSize, pageNum);
         return ResponseResult.ok(userPage);
     }
