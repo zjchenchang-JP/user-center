@@ -921,4 +921,969 @@ public T execute(TransactionCallback<T> action) {
 
 ---
 
+# 2026/05/04
+## MyBatis-Plus QueryWrapper：.eq() 和 .and() 的区别
 
+### 核心区别
+
+| 写法 | 作用 | SQL 示例 | 使用场景 |
+|------|------|----------|----------|
+| `.eq()` | 单独的 AND 条件 | `AND id = ?` | 简单等值条件 |
+| `.and(lambda -> ...)` | 分组，控制 OR 的作用范围 | `AND (条件1 OR 条件2)` | 内部有 OR 时必须分组 |
+
+### 1. .eq() - 单个独立条件
+
+直接使用 `.eq()` 是**单独的 AND 条件**，与其他条件是**并列关系**：
+
+```java
+// TeamServiceImpl.java 第 128、149、154、167 行
+queryWrapper.eq(Team::getId, teamId);        // AND id = ?
+queryWrapper.eq(Team::getMaxNum, maxNum);    // AND maxNum = ?
+queryWrapper.eq(Team::getUserId, userId);    // AND userId = ?
+queryWrapper.eq(Team::getStatus, statusEnum.getValue());  // AND status = ?
+```
+
+生成的 SQL：
+```sql
+WHERE id = ? AND maxNum = ? AND userId = ? AND status = ?
+```
+
+### 2. .and() - 分组条件（括号优先级）
+
+使用 `.and()` 是**将一组条件用括号包裹**，确保这些条件内部的逻辑优先计算：
+
+#### 示例 1：名称或描述匹配关键词（第 134-136 行）
+
+```java
+queryWrapper.and(qw -> qw.like(Team::getName, searchText)
+        .or().like(Team::getDescription, searchText));
+```
+
+生成的 SQL：
+```sql
+WHERE (name LIKE ? OR description LIKE ?)
+```
+
+#### 示例 2：未过期或未设置过期时间（第 172-173 行）
+
+```java
+queryWrapper.and(qw -> qw.gt(Team::getExpireTime, new Date())
+        .or().isNull(Team::getExpireTime));
+```
+
+生成的 SQL：
+```sql
+WHERE (expireTime > ? OR expireTime IS NULL)
+```
+
+### 为什么需要 .and()？
+
+**如果不使用 `.and()`，会导致逻辑错误**（AND 优先级高于 OR）：
+
+#### 错误写法（不用 and）
+
+假设查询条件是：
+- 名称含"游戏" **或** 描述含"游戏"
+- **并且** 状态 = 0
+
+```java
+queryWrapper.like(Team::getName, searchText)
+    .or().like(Team::getDescription, searchText)
+    .eq(Team::getStatus, 0);
+```
+
+生成的 SQL：
+```sql
+WHERE name LIKE '%游戏%' OR description LIKE '%游戏%' AND status = 0
+-- 由于 AND 优先级高于 OR，实际逻辑是：
+-- name LIKE '%游戏%' OR (description LIKE '%游戏%' AND status = 0)
+```
+
+❌ **问题**：只要名称匹配就返回，不管状态如何！
+
+#### 正确写法（用 and）
+
+```java
+queryWrapper.and(qw -> qw.like(Team::getName, searchText)
+        .or().like(Team::getDescription, searchText))
+    .eq(Team::getStatus, 0);
+```
+
+生成的 SQL：
+```sql
+WHERE (name LIKE '%游戏%' OR description LIKE '%游戏%') AND status = 0
+```
+
+✅ **正确**：名称或描述匹配，**并且**状态为 0
+
+### SQL 运算符优先级参考
+
+| 优先级 | 运算符 |
+|--------|--------|
+| 1（最高） | 括号 `()` |
+| 2 | NOT |
+| 3 | AND |
+| 4（最低） | OR |
+
+### 实战对比
+
+#### 场景：搜索队伍，支持关键词（名称/描述）+ 状态过滤
+
+```java
+// 前端传入：searchText="游戏", status=0
+LambdaQueryWrapper<Team> qw = new LambdaQueryWrapper<>();
+
+// ❌ 错误：不用 .and()
+qw.like(Team::getName, "游戏")
+  .or().like(Team::getDescription, "游戏")
+  .eq(Team::getStatus, 0);
+// SQL: name LIKE '%游戏%' OR description LIKE '%游戏%' AND status = 0
+// 结果：会返回名称含"游戏"的所有队伍（包括非公开的）
+
+// ✅ 正确：用 .and()
+qw.and(w -> w.like(Team::getName, "游戏")
+           .or().like(Team::getDescription, "游戏"))
+  .eq(Team::getStatus, 0);
+// SQL: (name LIKE '%游戏%' OR description LIKE '%游戏%') AND status = 0
+// 结果：只返回公开的、名称或描述含"游戏"的队伍
+```
+
+### 一句话总结
+
+> 当内部有 `.or()` 时，必须用 `.and()` 包裹，避免 OR 扩散到其他条件。
+
+### 速查表
+
+| 需求 | 代码写法 |
+|------|----------|
+| A 且 B 且 C | `.eq(A).eq(B).eq(C)` |
+| A 或 B | `.and(w -> w.eq(A).or().eq(B))` |
+| (A 或 B) 且 C | `.and(w -> w.eq(A).or().eq(B)).eq(C)` |
+| A 且 (B 或 C) | `.eq(A).and(w -> w.eq(B).or().eq(C))` |
+
+---
+
+## TeamUserVO 的设计意图
+
+### 核心目的：聚合展示 + 安全脱敏
+
+`TeamUserVO` 是一个 **VO（View Object）**，用于返回给前端。它的设计意图是解决两个问题：
+
+| 问题 | 解决方案 |
+|------|----------|
+| **一个队伍需要展示创建人信息** | 添加 `createUser` 字段（UserVO 类型） |
+| **敏感数据不能返回给前端** | 移除 `password` 字段，使用 `UserVO` 而非完整 `User` |
+
+### 1. 字段对比：Team vs TeamUserVO
+
+```java
+// Team（数据库实体）
+├── id, name, description, maxNum
+├── expireTime, userId, status
+├── password  ❌ 敏感信息
+├── createTime, updateTime
+└── isDelete  ❌ 内部字段
+
+// TeamUserVO（返回给前端）
+├── id, name, description, maxNum
+├── expireTime, userId, status
+├── createTime, updateTime
+├── createUser     ✅ 新增：创建人信息（UserVO）
+├── hasJoinNum     ✅ 新增：已加入人数
+└── hasJoin        ✅ 新增：当前用户是否已加入
+```
+
+### 2. 为什么不用 Team 直接返回？
+
+| 原因 | 说明 |
+|------|------|
+| **敏感信息泄露** | `Team.password` 会被返回给前端 |
+| **信息不完整** | 前端需要显示创建人昵称、头像，但 `Team.userId` 只是 ID |
+| **业务字段缺失** | 前端需要"已加入人数"、"是否已加入"等展示字段 |
+
+### 3. 为什么用 UserVO 而不是 User？
+
+```java
+// User 包含敏感信息
+private String userPassword;  // ❌ 不能返回
+private String phone;         // ❌ 不能返回
+private String email;         // ❌ 不能返回
+private Integer isDelete;     // ❌ 内部字段
+
+// UserVO（脱敏后的用户信息）
+// 只包含可以公开的字段
+```
+
+### 4. 设计模式：VO vs DTO vs Entity
+
+```
+┌─────────────┐
+│   Entity    │  Team / User - 数据库实体
+└──────┬──────┘
+       │ 映射/转换
+       ↓
+┌─────────────┐
+│    DTO      │  TeamQuery / TeamUserVO - 数据传输对象
+└──────┬──────┘
+       │
+       ↓
+┌─────────────┐
+│    VO       │  TeamUserVO - 视图对象（给前端看的）
+└─────────────┘
+```
+
+### 5. 实际使用场景
+
+```java
+// 前端请求：获取队伍列表
+GET /api/team/list
+
+// 后端返回
+[
+  {
+    "id": 1,
+    "name": "游戏开黑",
+    "description": "一起来玩",
+    "maxNum": 5,
+    "createUser": {
+      "id": 10,
+      "username": "张三",
+      "avatarUrl": "https://..."
+    },
+    "hasJoinNum": 3,
+    "hasJoin": false  // 当前用户未加入
+  }
+]
+```
+
+### 6. 总结
+
+| 优点 | 说明 |
+|------|------|
+| **安全** | 隐藏敏感字段（password、phone 等） |
+| **完整** | 聚合关联数据（创建人信息） |
+| **灵活** | 可根据不同接口返回不同字段 |
+| **解耦** | 数据库结构与前端展示分离 |
+
+**一句话总结**：`TeamUserVO` = `Team`（移除敏感字段）+ `UserVO`（创建人信息）+ 业务展示字段（已加入人数等）
+
+---
+
+## DTO（Data Transfer Object）的作用
+
+### 1. 核心定义
+
+DTO = **数据传输对象**，用于**接收前端请求参数**的封装类。
+
+```
+前端请求 → DTO → Service → Entity → 数据库
+```
+
+### 2. DTO vs VO vs Entity 完整对比
+
+| 类型 | 英文 | 作用 | 方向 | 示例 |
+|------|------|------|------|------|
+| **Entity** | 实体 | 数据库表映射 | ↔ DB | `Team`、`User` |
+| **DTO** | Data Transfer Object | 接收请求参数 | 前端 → 后端 | `TeamQuery` |
+| **VO** | View Object | 返回响应数据 | 后端 → 前端 | `TeamUserVO` |
+
+```
+┌─────────┐          ┌─────────┐          ┌─────────┐
+│ 前端    │ ───────> │  DTO    │ ───────> │ Service │
+│ 请求    │  传入参数 │TeamQuery│  查询条件 │         │
+└─────────┘          └─────────┘          └─────────┘
+                                            │
+                                            ↓
+┌─────────┐          ┌─────────┐          ┌─────────┐
+│ 前端    │ <─────── │   VO    │ <─────── │  Entity │
+│ 展示    │  返回数据 │TeamUserVO│  查询结果 │  Team   │
+└─────────┘          └─────────┘          └─────────┘
+```
+
+### 3. TeamQuery DTO 的实际价值
+
+#### 价值 1：接收前端查询条件
+
+```java
+// 前端请求
+GET /api/team/list?id=1&name=游戏&maxNum=5&status=0&pageNum=1&pageSize=10
+
+// 后端接收（Controller）
+public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+    // teamQuery 已自动封装好所有参数：
+    // teamQuery.id = 1
+    // teamQuery.name = "游戏"
+    // teamQuery.maxNum = 5
+    // teamQuery.status = 0
+    // teamQuery.pageNum = 1
+    // teamQuery.pageSize = 10
+}
+```
+
+#### 价值 2：包含业务逻辑字段
+
+```java
+public class TeamQuery extends PageRequest {
+    // 数据库字段
+    private Long id;
+    private String name;
+    private Integer maxNum;
+    private Integer status;
+
+    // ⭐ 业务逻辑字段（数据库不存在）
+    private String searchText;  // 同时搜索名称和描述
+}
+```
+
+在 `listTeams` 中的使用：
+
+```java
+// 第 132-136 行
+String searchText = teamQuery.getSearchText();
+if (StringUtils.isNotBlank(searchText)) {
+    queryWrapper.and(qw -> qw.like(Team::getName, searchText)
+            .or().like(Team::getDescription, searchText));
+}
+```
+
+#### 价值 3：继承分页基类
+
+```java
+// TeamQuery 继承 PageRequest
+public class TeamQuery extends PageRequest {
+    // 队伍查询字段...
+}
+
+// 自动拥有分页能力
+@Data
+public class PageRequest {
+    protected int pageSize;  // 页面大小
+    protected int pageNum;   // 当前第几页
+}
+```
+
+### 4. 为什么不用 Entity 直接接收？
+
+| 问题 | 说明 |
+|------|------|
+| **字段过多** | Entity 有 10+ 个字段，前端只查询 2-3 个 |
+| **安全风险** | 前端可能传入 `isDelete`、`createTime` 等不该修改的字段 |
+| **业务字段缺失** | `searchText` 这种业务字段不属于数据库表 |
+| **职责混乱** | Entity 应只关注数据库映射，不应参与 HTTP 交互 |
+
+**错误示例**：
+
+```java
+// ❌ 直接用 Team 接收查询条件
+public List<Team> listTeams(Team team) {
+    // 问题：
+    // 1. 前端可以传入 password 字段（安全风险）
+    // 2. 前端可以传入 isDelete=1（逻辑漏洞）
+    // 3. 无法支持 searchText 这种业务字段
+}
+```
+
+**正确示例**：
+
+```java
+// ✅ 用 TeamQuery DTO 接收
+public List<TeamUserVO> listTeams(TeamQuery teamQuery) {
+    // 只接收查询需要的字段，安全且清晰
+}
+```
+
+### 5. DTO 常见命名规范
+
+| 后缀 | 含义 | 示例 |
+|------|------|------|
+| `Query` | 查询条件 | `TeamQuery`、`UserQuery` |
+| `Request` | 请求参数 | `LoginRequest`、`AddTeamRequest` |
+| `Command` | 命令（写操作） | `CreateTeamCommand` |
+
+### 6. 数据流转完整图
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    数据流转过程                              │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  前端请求 → DTO → Service → Entity → 数据库                  │
+│           (接收)      (查询)      (存储)                     │
+│                                                             │
+│  数据库 → Entity → Service → VO → 前端展示                   │
+│            (映射)      (组装)   (返回)                      │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│                    职责划分                                  │
+├─────────────────────────────────────────────────────────────┤
+│  Entity: 数据库表映射                                        │
+│  DTO:   接收前端请求（可能包含业务逻辑字段）                  │
+│  VO:    返回前端响应（可能包含脱敏、聚合数据）                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 7. 一句话总结
+
+- **DTO** = 前端传什么，我就收什么（如 `TeamQuery`）
+- **VO** = 前端要什么，我就给什么（如 `TeamUserVO`）
+- **Entity** = 数据库存什么，我就映射什么（如 `Team`）
+
+---
+
+---
+
+## 通过 SQL + mapper.xml 实现关联查询已加入队伍的用户信息
+
+### 问题背景
+
+原代码使用循环查询（N+1 问题）：
+```java
+// 查询队伍列表
+List<Team> teamList = this.list(queryWrapper);
+
+// 循环查询创建人信息（N+1 问题）
+for (Team team : teamList) {
+    User user = userService.getById(team.getUserId());  // 每次循环都查一次数据库
+    // ...
+}
+```
+
+**性能问题**：
+- 假设有 100 个队伍
+- 查询队伍列表：1 次 SQL
+- 循环查询创建人：100 次 SQL
+- **总计：101 次 SQL**
+
+### 解决方案：使用 MyBatis 自定义 SQL 关联查询
+
+#### 1. 在 TeamMapper 接口中添加自定义方法
+
+```java
+public interface TeamMapper extends BaseMapper<Team> {
+
+    /**
+     * 查询队伍列表（包含创建人信息、已加入人数、当前用户是否已加入）
+     */
+    List<TeamUserVO> listTeamUserVOByIds(@Param("teamIds") List<Long> teamIds, @Param("loginUserId") Long loginUserId);
+}
+```
+
+#### 2. 在 TeamMapper.xml 中编写 SQL 和结果映射
+
+```xml
+<!-- TeamUserVO 结果映射 -->
+<resultMap id="TeamUserVOMap" type="com.zjcc.usercenter.model.vo.TeamUserVO">
+    <!-- 队伍基本信息 -->
+    <id property="id" column="id" />
+    <result property="name" column="name" />
+    <result property="description" column="description" />
+    <result property="maxNum" column="maxNum" />
+    <result property="expireTime" column="expireTime" />
+    <result property="userId" column="userId" />
+    <result property="status" column="status" />
+    <result property="createTime" column="createTime" />
+    <result property="updateTime" column="updateTime" />
+    
+    <!-- 已加入人数 -->
+    <result property="hasJoinNum" column="hasJoinNum" />
+    
+    <!-- 当前用户是否已加入 -->
+    <result property="hasJoin" column="hasJoin" />
+    
+    <!-- 创建人信息（关联查询） -->
+    <association property="createUser" javaType="com.zjcc.usercenter.model.vo.UserVO">
+        <id property="id" column="createUserId" />
+        <result property="username" column="createUsername" />
+        <result property="userAccount" column="createUserAccount" />
+        <result property="avatarUrl" column="createAvatarUrl" />
+        <result property="gender" column="createGender" />
+        <result property="email" column="createEmail" />
+        <result property="userStatus" column="createUserStatus" />
+        <result property="createTime" column="createUserCreateTime" />
+        <result property="userRole" column="createUserRole" />
+        <result property="planetCode" column="createPlanetCode" />
+        <result property="profile" column="createProfile" />
+        <result property="tags" column="createTags" />
+    </association>
+</resultMap>
+
+<!-- 查询队伍列表（包含创建人信息、已加入人数、当前用户是否已加入） -->
+<select id="listTeamUserVOByIds" resultMap="TeamUserVOMap">
+    SELECT
+        t.id, t.name, t.description, t.maxNum, t.expireTime, t.userId, t.status, t.createTime, t.updateTime,
+        
+        -- 已加入该队伍的人数
+        COUNT(DISTINCT ut.userId) AS hasJoinNum,
+        
+        -- 当前用户是否已加入该队伍（0=未加入，1=已加入）
+        MAX(CASE WHEN ut.userId = #{loginUserId} THEN 1 ELSE 0 END) AS hasJoin,
+        
+        -- 创建人用户信息
+        u.id AS createUserId, u.username AS createUsername, u.userAccount AS createUserAccount,
+        u.avatarUrl AS createAvatarUrl, u.gender AS createGender, u.email AS createEmail,
+        u.userStatus AS createUserStatus, u.createTime AS createUserCreateTime,
+        u.userRole AS createUserRole, u.planetCode AS createPlanetCode,
+        u.profile AS createProfile, u.tags AS createTags
+
+    FROM team t
+    -- 关联创建人信息
+    LEFT JOIN `user` u ON t.userId = u.id
+    -- 关联已加入队伍的用户信息
+    LEFT JOIN user_team ut ON t.id = ut.teamId AND ut.isDelete = 0
+
+    WHERE t.id IN
+    <foreach collection="teamIds" item="teamId" open="(" separator="," close=")">
+        #{teamId}
+    </foreach>
+    AND t.isDelete = 0
+
+    GROUP BY t.id
+</select>
+```
+
+#### 3. 修改 TeamServiceImpl 使用自定义 SQL
+
+```java
+@Override
+public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+    // ... 前面的查询条件拼接逻辑不变 ...
+    
+    // 不展示已过期的队伍
+    queryWrapper.and(qw -> qw.gt(Team::getExpireTime, new Date())
+            .or().isNull(Team::getExpireTime));
+
+    // 查询符合条件的队伍
+    List<Team> teamList = this.list(queryWrapper);
+    if (CollectionUtils.isEmpty(teamList)) {
+        return new ArrayList<>();
+    }
+
+    // ✅ 提取所有队伍ID
+    List<Long> teamIds = teamList.stream()
+            .map(Team::getId)
+            .collect(java.util.stream.Collectors.toList());
+
+    // ✅ 使用自定义 SQL 关联查询：创建人信息、已加入人数、当前用户是否已加入
+    List<TeamUserVO> teamUserVOList = teamMapper.listTeamUserVOByIds(teamIds, null);
+
+    return teamUserVOList;
+}
+```
+
+### 核心技术点
+
+#### 1. LEFT JOIN 多表关联
+
+```sql
+FROM team t
+-- 关联创建人信息
+LEFT JOIN `user` u ON t.userId = u.id
+-- 关联已加入队伍的用户信息
+LEFT JOIN user_team ut ON t.id = ut.teamId AND ut.isDelete = 0
+```
+
+#### 2. 聚合函数计算已加入人数
+
+```sql
+COUNT(DISTINCT ut.userId) AS hasJoinNum
+```
+
+#### 3. CASE WHEN 判断当前用户是否已加入
+
+```sql
+MAX(CASE WHEN ut.userId = #{loginUserId} THEN 1 ELSE 0 END) AS hasJoin
+```
+
+#### 4. resultMap 嵌套映射
+
+```xml
+<association property="createUser" javaType="com.zjcc.usercenter.model.vo.UserVO">
+    <!-- 创建人信息字段映射 -->
+</association>
+```
+
+#### 5. foreach 遍历 IN 参数
+
+```xml
+WHERE t.id IN
+<foreach collection="teamIds" item="teamId" open="(" separator="," close=")">
+    #{teamId}
+</foreach>
+```
+
+### 性能对比
+
+| 实现方式 | SQL 次数（100 个队伍） | 网络开销 | 优点 | 缺点 |
+|---------|---------------------|---------|------|------|
+| 原实现（循环查询） | 101 次 | 高 | 代码简单 | ❌ 性能差 |
+| 新实现（关联查询） | **1 次** | 低 | ✅ 高性能 | SQL 稍复杂 |
+
+### MyBatis 核心概念速查
+
+| 概念 | 作用 | 示例 |
+|------|------|------|
+| `<resultMap>` | 结果映射配置 | 将数据库字段映射到 VO 对象 |
+| `<association>` | 一对一关联映射 | 队伍 ← 创建人 |
+| `<collection>` | 一对多关联映射 | 用户 → 多个队伍 |
+| `<foreach>` | 遍历集合参数 | IN 条件、批量插入 |
+| `<if>` | 动态 SQL 条件 | 根据参数拼接 SQL |
+| `<choose>` | 多选一条件 | 类似 Java switch |
+
+### SQL 关键字总结
+
+| 关键字 | 作用 | 示例 |
+|--------|------|------|
+| `LEFT JOIN` | 左连接，保留左表所有数据 | 关联创建人信息 |
+| `COUNT(DISTINCT ...)` | 去重计数 | 统计已加入人数 |
+| `CASE WHEN ... THEN ... ELSE ... END` | 条件表达式 | 判断是否已加入 |
+| `GROUP BY` | 分组聚合 | 按队伍ID分组 |
+| `IN (...)` | 多值匹配 | 查询多个队伍 |
+| `AS` | 别名 | 字段重命名 |
+
+---
+
+---
+
+## 分布式锁
+```java
+Redisson
+  1.看门狗的工作机制：看门狗是一个运行在 JVM 进程内的后台定时任务（基于 netty 的 HashedWheelTimer），每隔
+  lockWatchdogTimeout / 3（默认 30s / 3 = 10秒）向 Redis 发送续期请求，将锁的 TTL 重新设为 lockWatchdogTimeout。
+  2. JVM 崩溃时发生了什么：
+    - 看门狗线程是 JVM 进程内的线程，进程死亡 = 看门狗死亡
+    - 没有看门狗续期，Redis 中锁的 key 在剩余 TTL 到期后自动过期删除
+    - 其他等待的客户端可以正常获取锁
+  3. 不会死锁：最坏情况下，锁会在 JVM 崩溃后 30秒内自动释放（即 lockWatchdogTimeout 的默认值）。
+```
+
+### 为什么 joinTeam 需要幂等性考虑，而 addTeam 不需要？
+
+#### 核心区别
+
+创建队伍：用户 A 创建队伍 → 只有用户 A 能操作 → 不存在"多个用户同时创建同一个队伍"的情况
+
+加入队伍：
+- 多个用户可以加入同一个队伍
+- 同一个用户可以多次点击"加入"按钮
+- ❌ 存在"重复加入"的风险
+
+#### 创建队伍（add）为什么不需要幂等性？
+
+原因：
+- 每次创建都是新队伍，team.id 是自增主键，不会重复
+- 每个用户独立创建，不存在多个用户创建同一个队伍的情况
+- 即使前端重复点击，最多也只是创建多个不同的队伍
+
+#### 加入队伍（join）为什么需要幂等性？
+
+问题场景：
+- 用户快速多次点击"加入"按钮
+- 分布式环境下，多个请求同时通过校验
+- 结果：插入多条相同的 user_team 记录
+
+---
+
+### 并发场景详解
+
+#### 场景 1：同一用户连续快速点击（单机环境）
+
+用户操作：
+- 10:00:00.100 - 点击"加入队伍"
+- 10:00:00.110 - 再次点击"加入队伍"（双击/快速点击）
+
+后端处理：
+- 10:00:00.120 - 请求1 到达，查询：count = 0
+- 10:00:00.125 - 请求1 查询数据库：hasUserJoinTeam = 0
+- 10:00:00.130 - 请求2 到达，开始处理
+- 10:00:00.135 - 请求2 查询数据库：hasUserJoinTeam = 0
+- ❌ 两个请求都通过了校验！
+- 10:00:00.150 - 请求1 插入 user_team 记录（id=1）
+- 10:00:00.155 - 请求2 插入 user_team 记录（id=2）
+
+结果：user_team 表中有 2 条重复记录！
+
+#### 场景 2：负载均衡分发到不同服务器（分布式环境）
+
+用户操作：
+- 10:00:00.100 - 点击"加入队伍"
+- 10:00:00.110 - 快速点击第二次（或网络重传）
+
+负载均衡：
+- 请求1 → 分发到服务器 A
+- 请求2 → 分发到服务器 B
+
+服务器 A：
+- 10:00:00.120 - 查询数据库：hasUserJoinTeam = 0
+- 10:00:00.130 - 通过校验
+
+服务器 B：
+- 10:00:00.125 - 查询数据库：hasUserJoinTeam = 0
+- 10:00:00.135 - 通过校验
+
+❌ 两个服务器的请求都通过了校验！
+
+- 10:00:00.150 - 服务器 A 插入 user_team 记录
+- 10:00:00.155 - 服务器 B 插入 user_team 记录
+
+结果：user_team 表中有 2 条重复记录！
+
+---
+时序图
+```mermaid
+┌──────────┐                 ┌──────────┐                 ┌──────────┐
+│ 请求1    │                 │ 服务器   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┬─────┘
+│                            │                             │
+│  1. 点击"加入"               │                             │
+├───────────────────────────>│                             │
+│                            │                             │
+│                     2. 查询：count = 0 ────────────────>│
+│                            │                             │
+│                     3. 返回：0   <──────────────────────│
+│                            │                             │
+│                            │  ❌ 时间片切换               │
+┌────┴─────┐                 ┌────┴─────┐                 ┌────┴─────┐
+│ 请求2    │                 │ 服务器   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┬─────┘
+│  4. 再次点击               │                             │
+├───────────────────────────>│                             │
+│                            │                             │
+│                     5. 查询：count = 0 ────────────────>│
+│                            │                             │
+│                     6. 返回：0   <──────────────────────│
+│                            │                             │
+│                            │  ❌ 请求2 也通过校验！       │
+┌────┴─────┘                 ┌────┴─────┘                 ┌────┴─────┐
+│ 请求1    │                 │ 服务器   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┬─────┘
+│                            │                             │
+│                     7. 插入记录   ────────────────────>│
+│                            │                             │
+┌────┴─────┐                 ┌────┴─────┐                 ┌────┴─────┐
+│ 请求2    │                 │ 服务器   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┴─────┘
+│                            │                             │
+│                     8. 插入记录   ────────────────────>│
+│                            │                             │
+│                            │                             │
+│                            │  ❌ 结果：两条重复记录       │
+```
+---
+
+### 为什么创建队伍没有这个问题？
+
+关键区别：
+
+| 操作 | 独立性 | 是否会重复 |
+|------|--------|-----------|
+| 创建队伍 | 每个队伍有唯一的主键（自增） | ❌ 不会重复 |
+| 加入队伍 | 同一个用户可以多次加入同一个队伍 | ✅ 会重复 |
+
+创建队伍的时序：
+- 请求1: 创建队伍 → team.id = 1（数据库自动生成）
+- 请求2: 创建队伍 → team.id = 2（数据库自动生成）
+- ✅ 结果：两个不同的队伍，没有冲突
+
+加入队伍的时序：
+- 请求1: 用户100 加入 队伍1 → user_team.id = 1
+- 请求2: 用户100 加入 队伍1 → user_team.id = 2
+- ❌ 结果：两条重复的记录（userId=100, teamId=1）
+
+---
+
+### 幂等性对比
+
+| 操作 | 重复执行的影响 | 是否需要幂等性 |
+|------|---------------|----------------|
+| 创建队伍 | 创建多个不同的队伍 | ❌ 不需要（结果可接受） |
+| 加入队伍 | 插入重复记录 | ✅ 需要 |
+| 转账 | 重复扣款 | ✅ 需要 |
+| 下单 | 创建多个订单 | ✅ 需要 |
+| 查询 | 返回相同结果 | ✅ 天然幂等 |
+
+---
+
+### 分布式锁实现方案
+
+推荐写法（细粒度锁）：
+
+```java
+public boolean joinTeam(TeamJoinRequest teamJoinRequest, User loginUser) {
+    Long teamId = teamJoinRequest.getTeamId();
+    Long userId = loginUser.getId();
+    
+    // ========== 不加锁区域 ==========
+    // 1. 查询队伍（只读操作，无需加锁）
+    Team team = this.getById(teamId);
+    if (team == null) {
+        throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
+    }
+    
+    // 2. 校验队伍状态、密码、人数...
+    
+    // ========== 加锁区域（最小范围） ==========
+    String lockKey = "team:join:" + userId + ":" + teamId;
+    RLock lock = redissonClient.getLock(lockKey);
+    
+    try {
+        boolean isLocked = lock.tryLock(0, 10, TimeUnit.SECONDS);
+        if (!isLocked) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "请勿重复操作");
+        }
+        
+        // 5. 再次校验（防止在加锁前已经加入）
+        // 6. 检查队伍人数是否已满（防止并发加入导致超员）
+        // 7. 插入记录
+        
+    } finally {
+        if (lock.isHeldByCurrentThread()) {
+            lock.unlock();
+        }
+    }
+}
+```
+---
+加锁后的时序图
+```mermaid
+┌──────────┐                 ┌──────────┐                 ┌──────────┐
+│ 请求1    │                 │  Redis   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┬─────┘
+│                            │                             │
+│  1. 获取锁                 │                             │
+├───────────────────────────>│                             │
+│                            │                             │
+│                     2. 返回：成功 │                             │
+│                            │                             │
+│  3. 查询并插入               │                             │
+├─────────────────────────────────────────────────────────>│
+│                            │                             │
+│                     4. 返回：成功 │                             │
+│                            │                             │
+│  5. 释放锁                 │                             │
+├───────────────────────────>│                             │
+└────┴─────┘                 └────┴─────┘                 └────┴─────┘
+
+┌──────────┐                 ┌──────────┐                 ┌──────────┐
+│ 请求2    │                 │  Redis   │                 │  数据库  │
+└────┬─────┘                 └────┬─────┘                 └────┬─────┘
+│                            │                             │
+│  6. 获取锁（等待0秒）       │                             │
+├───────────────────────────>│                             │
+│                            │                             │
+│                     7. 返回：失败（锁被占用）                 │
+│                            │                             │
+│  ❌ 抛异常：请勿重复操作     │                             │
+│                            │                             │
+└────┴─────┘                 └────┴─────┘                 └────┴─────┘
+
+```
+
+
+
+---
+
+### 锁的粒度对比
+
+| 方案 | 加锁范围 | 性能 | 推荐度 |
+|------|---------|------|--------|
+| 整个方法加锁 | 整个方法 | ❌ 低 | ❌ 不推荐 |
+| 只加关键代码段 | 检查重复 + 插入 | ✅ 高 | ✅ 推荐 |
+
+原则：锁的范围越小越好
+
+| 操作 | 是否需要加锁 | 原因 |
+|------|------------|------|
+| 查询队伍信息 | ❌ 不需要 | 只读操作，不会有并发问题 |
+| 校验队伍状态 | ❌ 不需要 | 状态不会在短时间内变化 |
+| 校验密码 | ❌ 不需要 | 密码校验是独立的 |
+| 检查重复加入 | ✅ 需要 | 并发问题发生点 |
+| 插入记录 | ✅ 需要 | 并发问题发生点 |
+
+---
+
+### 总结
+
+| 场景 | 是否会有并发问题 | 原因 |
+|------|-----------------|------|
+| 单机 + 单用户快速点击 | ✅ 会 | 线程切换导致两个请求都通过校验 |
+| 分布式 + 负载均衡 | ✅ 会 | 不同服务器同时查询数据库都返回 0 |
+| 创建队伍 | ❌ 不会 | 每次生成不同的主键，不会冲突 |
+
+核心问题：查询 和 插入 之间有时间窗口，并发请求可能都通过查询，然后都执行插入。
+
+解决方案：使用分布式锁，保证同一用户的"加入同一队伍"操作串行执行。
+
+---
+
+## 事务
+
+### joinTeam 方法需要事务注解吗？
+
+### 数据库操作分析
+
+| 操作 | 类型 | 是否需要事务 |
+|------|------|-------------|
+| 查询队伍 | 只读 | ❌ 不需要 |
+| 校验密码 | 计算 | ❌ 不需要 |
+| 检查是否已加入 | 只读 | ❌ 不需要 |
+| 插入 user_team | 单条写入 | ❌ 不需要 |
+
+---
+
+### 为什么不需要事务？
+
+事务用于保证：多个操作要么全部成功，要么全部失败
+
+例如：
+- 转账：扣款A + 入款B（2个写操作）
+- 下单：扣库存 + 创建订单（2个写操作）
+- 创建队伍：插入team + 插入user_team（2个写操作）✅
+
+joinTeam：
+- 只有一个写操作：插入user_team
+- ❌ 不需要事务
+
+---
+
+### 什么时候 joinTeam 需要事务？
+
+如果加入队伍后有后续写操作：
+
+```java
+@Transactional(rollbackFor = Exception.class)
+public boolean joinTeam(TeamJoinRequest teamJoinRequest, User loginUser) {
+    // 1. 插入 user_team
+    userTeamService.save(userTeam);
+    
+    // 2. 更新队伍的当前人数（如果有这个字段）
+    team.setCurrentCount(team.getCurrentCount() + 1);
+    this.updateById(team);
+    
+    // 3. 记录加入日志
+    joinLogService.save(log);
+    
+    // ✅ 需要事务：保证3个写操作同时成功或同时失败
+}
+```
+
+---
+
+### 结论对比
+
+| 场景 | 是否需要 @Transactional | 原因 |
+|------|------------------------|------|
+| 当前 joinTeam | ❌ 不需要 | 只有一个写操作 |
+| addTeam | ✅ 需要 | 两个写操作（插入 team + user_team） |
+| joinTeam + 更新人数 | ✅ 需要 | 多个写操作 |
+
+---
+
+### 总结
+
+关键原则：
+- 只有当有多个写操作需要保证原子性时，才需要 @Transactional
+- 单个写操作不需要事务，数据库本身就能保证一致性
+
+当前 joinTeam 方法只有一个写操作（save(userTeam)），不需要事务。
+
+---
