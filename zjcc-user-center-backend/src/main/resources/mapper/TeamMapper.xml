@@ -22,4 +22,98 @@
         id,name,description,maxNum,expireTime,userId,
         status,password,createTime,updateTime,isDelete
     </sql>
+
+    <!--
+        TeamUserVO 结果映射
+        包含队伍信息、创建人信息、已加入人数、当前用户是否已加入
+    -->
+    <resultMap id="TeamUserVOMap" type="com.zjcc.usercenter.model.vo.TeamUserVO">
+        <!-- 队伍基本信息 -->
+        <id property="id" column="id" />
+        <result property="name" column="name" />
+        <result property="description" column="description" />
+        <result property="maxNum" column="maxNum" />
+        <result property="expireTime" column="expireTime" />
+        <result property="userId" column="userId" />
+        <result property="status" column="status" />
+        <result property="createTime" column="createTime" />
+        <result property="updateTime" column="updateTime" />
+
+        <!-- 已加入人数 -->
+        <result property="hasJoinNum" column="hasJoinNum" />
+
+        <!-- 当前用户是否已加入 -->
+        <result property="hasJoin" column="hasJoin" />
+
+        <!-- 创建人信息（关联查询） -->
+        <association property="createUser" javaType="com.zjcc.usercenter.model.vo.UserVO">
+            <id property="id" column="createUserId" />
+            <result property="username" column="createUsername" />
+            <result property="userAccount" column="createUserAccount" />
+            <result property="avatarUrl" column="createAvatarUrl" />
+            <result property="gender" column="createGender" />
+            <result property="email" column="createEmail" />
+            <result property="userStatus" column="createUserStatus" />
+            <result property="createTime" column="createUserCreateTime" />
+            <result property="userRole" column="createUserRole" />
+            <result property="planetCode" column="createPlanetCode" />
+            <result property="profile" column="createProfile" />
+            <result property="tags" column="createTags" />
+        </association>
+    </resultMap>
+
+    <!--
+        查询队伍列表（包含创建人信息、已加入人数、当前用户是否已加入）
+
+        @param teamIds 队伍ID列表
+        @param loginUserId 当前登录用户ID
+        @return 队伍用户VO列表
+    -->
+    <select id="listTeamUserVOByIds" resultMap="TeamUserVOMap">
+        SELECT
+            t.id,
+            t.name,
+            t.description,
+            t.maxNum,
+            t.expireTime,
+            t.userId,
+            t.status,
+            t.createTime,
+            t.updateTime,
+
+            -- 已加入该队伍的人数
+            COUNT(DISTINCT ut.userId) AS hasJoinNum,
+
+            -- 当前用户是否已加入该队伍（0=未加入，1=已加入）
+            MAX(CASE WHEN ut.userId = #{loginUserId} THEN 1 ELSE 0 END) AS hasJoin,
+
+            -- 创建人用户信息
+            u.id AS createUserId,
+            u.username AS createUsername,
+            u.userAccount AS createUserAccount,
+            u.avatarUrl AS createAvatarUrl,
+            u.gender AS createGender,
+            u.email AS createEmail,
+            u.userStatus AS createUserStatus,
+            u.createTime AS createUserCreateTime,
+            u.userRole AS createUserRole,
+            u.planetCode AS createPlanetCode,
+            u.profile AS createProfile,
+            u.tags AS createTags
+
+        FROM team t
+        -- 关联创建人信息
+        LEFT JOIN `user` u ON t.userId = u.id
+        -- 关联已加入队伍的用户信息
+        LEFT JOIN user_team ut ON t.id = ut.teamId AND ut.isDelete = 0
+
+        WHERE t.id IN
+        <foreach collection="teamIds" item="teamId" open="(" separator="," close=")">
+            #{teamId}
+        </foreach>
+        AND t.isDelete = 0
+
+        GROUP BY t.id
+    </select>
+
 </mapper>

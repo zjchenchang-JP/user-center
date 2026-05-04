@@ -651,3 +651,174 @@ SELECT NOW();
 | 统一时区配置 | 一次配置，全局生效 | 需确保所有环境一致 | 已有项目 |
 
 **建议**：将 `Date` 改为 `LocalDateTime`，一劳永逸。
+
+---
+# 2026/05/04
+## Spring 分页参数绑定异常
+
+### 问题现象
+
+```
+2026-05-04 11:09:12.383  WARN 3772 --- [nio-8080-exec-5]
+.w.s.m.s.DefaultHandlerExceptionResolver : Resolved [org.springframework.validation.BindException:
+org.springframework.validation.BeanPropertyBindingResult: 2 errors
+
+Field error in object 'teamQuery' on field 'pageNum': rejected value [];
+codes [typeMismatch.teamQuery.pageNum,typeMismatch.pageNum,typeMismatch.int,typeMismatch];
+default message [Failed to convert property value of type 'java.lang.String' to required type 'int' for property 'pageNum';
+nested exception is java.lang.NumberFormatException: For input string: ""]
+
+Field error in object 'teamQuery' on field 'pageSize': rejected value [];
+codes [typeMismatch.teamQuery.pageSize,typeMismatch.pageSize,typeMismatch.int,typeMismatch];
+...
+```
+
+### 错误原因
+
+前端传入的分页参数是**空字符串 `""`**，但后端期望的是 `int` 类型：
+
+```java
+// PageRequest.java（原代码）
+protected int pageSize;   // ❌ 基本类型，不能为 null
+protected int pageNum;    // ❌ 基本类型，不能为 null
+```
+
+当前端不传这些参数，或传空字符串时：
+- Spring 尝试将 `""` 转换为 `int`
+- **抛出 `NumberFormatException`**
+
+### 解决方案
+
+#### 方案 1：改用包装类型（推荐 ✅）
+
+将 `int` 改为 `Integer`，允许接收 `null`：
+
+```java
+// PageRequest.java（修改后）
+@Data
+public class PageRequest implements Serializable {
+    /**
+     * 页面大小
+     */
+    protected Integer pageSize;  // ✅ 包装类型，可为 null
+
+    /**
+     * 当前第几页
+     */
+    protected Integer pageNum;   // ✅ 包装类型，可为 null
+}
+```
+
+然后在 Service 中设置默认值：
+
+```java
+// TeamServiceImpl.java
+@Override
+public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+    // 设置分页默认值
+    if (teamQuery == null) {
+        teamQuery = new TeamQuery();
+    }
+    if (teamQuery.getPageNum() == null || teamQuery.getPageNum() <= 0) {
+        teamQuery.setPageNum(1);
+    }
+    if (teamQuery.getPageSize() == null || teamQuery.getPageSize() <= 0) {
+        teamQuery.setPageSize(10);
+    }
+    // ... 后续逻辑
+}
+```
+
+#### 方案 2：使用 @DefaultValue 注解
+
+在 Controller 方法参数上添加默认值注解：
+
+```java
+@GetMapping("/list")
+public Result<List<TeamUserVO>> listTeams(
+    @RequestParam(defaultValue = "1") Integer pageNum,
+    @RequestParam(defaultValue = "10") Integer pageSize
+) {
+    // ...
+}
+```
+
+### 基本类型 vs 包装类型
+
+| 类型 | null 值处理 | 前端不传参数 | 前端传空字符串 | 适用场景 |
+|------|------------|-------------|---------------|----------|
+| `int` | ❌ 不允许 | ❌ 报错 | ❌ 报错 | 必传参数 |
+| `Integer` | ✅ 允许为 null | ✅ 不报错 | ✅ 不报错 | 可选参数 |
+
+### 一句话总结
+
+> 分页参数应该是可选的，用 `Integer` 代替 `int`，并在代码中设置默认值。
+
+---
+
+## 补充：GET vs POST 传参方式
+
+### 核心区别
+
+| HTTP 方法 | 无注解时默认行为 | 能用 @RequestBody 吗？ | 参数来源 | 前端传参方式 |
+|-----------|-----------------|---------------------|----------|-------------|
+| GET | URL 参数 | ❌ 不能 | Query String | `?id=1&name=xx` |
+| POST | 请求体（JSON） | ✅ 能 | Request Body | JSON 格式 |
+| PUT | 请求体（JSON） | ✅ 能 | Request Body | JSON 格式 |
+| DELETE | 请求体（JSON） | ✅ 能 | Request Body | JSON 格式 |
+
+### 为什么 GET 不能用 @RequestBody？
+
+HTTP 协议规定：
+- **GET 请求没有请求体**
+- `@RequestBody` 是从请求体中读取数据
+- 所以 **GET + @RequestBody = 冲突**，Spring 会抛异常
+
+### 你的代码
+
+```java
+// 当前写法：POST + 无注解
+@PostMapping("/list")
+public BaseResponse<List<TeamUserVO>> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+    // ✅ 默认使用 @RequestBody，从 JSON 请求体绑定
+}
+```
+
+**前端调用**：
+```javascript
+fetch('/api/team/list', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    id: 1,
+    name: '游戏',
+    pageNum: 1,
+    pageSize: 10
+  })
+})
+```
+
+### 如果改为 GET
+
+```java
+@GetMapping("/list")
+public BaseResponse<List<TeamUserVO>> listTeams(TeamQuery teamQuery) {
+    // ✅ 默认使用 @RequestParam，从 URL 参数绑定
+}
+```
+
+**前端调用**：
+```javascript
+fetch('/api/team/list?id=1&name=游戏&pageNum=1&pageSize=10')
+```
+
+### 查询接口应该用 GET 还是 POST？
+
+| 方式 | 优点 | 缺点 | 推荐场景 |
+|------|------|------|----------|
+| GET | 可直接在浏览器访问、支持缓存 | URL 长度限制、敏感参数暴露 | **查询接口推荐** |
+| POST | 复杂对象结构好、参数在请求体 | 不支持浏览器直接访问 | 复杂查询条件 |
+
+**RESTful 规范**：查询用 GET，创建/更新用 POST/PUT。
+
+---

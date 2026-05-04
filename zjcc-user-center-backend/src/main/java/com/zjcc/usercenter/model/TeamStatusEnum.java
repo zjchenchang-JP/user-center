@@ -4,6 +4,7 @@ import lombok.Getter;
 
 /**
  * 队伍状态枚举
+ * 私有=仅受邀者加入，加密=所有人可见但需密码验证 ?
  */
 @Getter
 public enum TeamStatusEnum {

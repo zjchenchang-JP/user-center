@@ -63,7 +63,7 @@ public class UserController {
         return ResponseResult.ok(loginUser);
     }
 
-    // 获取当前用户
+    // 获取当前用户 展示用户最新信息
     @GetMapping("/current")
     public BaseResponse<User> getCurrentUser(HttpServletRequest request) {
         // 从session获取当前登录用户
@@ -141,7 +141,7 @@ public class UserController {
         if (user == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User loginUser = userService.loginUser(request);
+        User loginUser = userService.getLoginUser(request);
         int result = userService.updateUser(user, loginUser);
         return ResponseResult.ok(result);
     }
@@ -156,7 +156,7 @@ public class UserController {
             @RequestParam(defaultValue = "10") long pageSize,
             @RequestParam(defaultValue = "1") long pageNum,
             HttpServletRequest request) {
-        User loginUser = userService.loginUser(request);
+        User loginUser = userService.getLoginUser(request);
         Page<User> userPage = userService.recommendUsers(loginUser, pageSize, pageNum);
         return ResponseResult.ok(userPage);
     }

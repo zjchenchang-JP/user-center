@@ -41,7 +41,7 @@ public class PreCacheJob {
     private final List<Long> vipUserList = Arrays.asList(1L, 3L, 6L);
 
     // 每天凌晨1点执行，预热推荐用户
-    @Scheduled(cron = "0 20 * * * *")   // 设置时间
+    @Scheduled(cron = "0 20 1 * * *")   // 设置时间
     public void doCacheRecommendUser() {
         // 分布式锁。防止多个服务器实例都执行本次预热任务
         RLock lock = redissonClient.getLock(R_DISTRIBUTED_LOCK);
