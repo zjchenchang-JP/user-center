@@ -822,3 +822,291 @@ fetch('/api/team/list?id=1&name=游戏&pageNum=1&pageSize=10')
 **RESTful 规范**：查询用 GET，创建/更新用 POST/PUT。
 
 ---
+
+# 2026/05/06
+## 时间格式化三方联动关系详解
+
+### 问题背景
+
+用户询问以下三者之间的联动关系：
+1. **后端注解**：`@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")`
+2. **Spring 配置**：`spring.jackson.date-format: yyyy-MM-dd HH:mm:ss`
+3. **前端代码**：`expireTime: dayjs(addTeamData.value.expireTime).format('YYYY-MM-DD HH:mm:ss')`
+
+### 完整数据流
+
+```
+前端 (Vue/JavaScript)          后端 (Spring Boot)
+    │                              │
+    │  ① 发送请求                  │
+    ├─────────────────────────────>│
+    │  expireTime:                │  ② @DateTimeFormat
+    │  "2026-05-06 12:00:00"      │  @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
+    │                              │  将字符串 → Date对象
+    │                              │
+    │  ③ 返回响应                  │  ④ spring.jackson.date-format
+    │<─────────────────────────────┤  将 Date对象 → 字符串
+    │  expireTime:                │  "2026-05-06 12:00:00"
+    │  "2026-05-06 12:00:00"       │
+```
+
+---
+
+### 详细解析
+
+#### 1. 前端发送 (请求阶段)
+
+```javascript
+expireTime: dayjs(addTeamData.value.expireTime).format('YYYY-MM-DD HH:mm:ss')
+// 发送格式: "2026-05-06 12:00:00"
+```
+
+#### 2. 后端接收 (@DateTimeFormat)
+
+```java
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
+private Date expireTime;
+```
+
+**作用**: Spring MVC 参数绑定阶段
+- 将前端发送的 **String** → **Date** 对象
+- 这里 pattern 是 `.SSS`(毫秒)，但前端发的是 `HH:mm:ss`(秒级)
+- **⚠️ 不匹配**: 虽然 Spring 有容错机制可以工作，但建议保持一致
+
+#### 3. 后端返回 (响应阶段)
+
+```yaml
+spring:
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+```
+
+**作用**: Jackson 序列化阶段
+- 将 **Date** 对象 → **JSON 字符串**
+- 统一所有 Date 字段的输出格式
+
+#### 4. 前端接收
+
+```javascript
+// 接收到的格式: "2026-05-06 12:00:00"
+```
+
+---
+
+### ⚠️ 存在的问题
+
+| 配置位置 | 格式 | 问题 |
+|---------|------|------|
+| @DateTimeFormat | `yyyy-MM-dd HH:mm:ss.SSS` | 有毫秒 |
+| 前端发送 | `YYYY-MM-DD HH:mm:ss` | 无毫秒 |
+| Jackson响应 | `yyyy-MM-dd HH:mm:ss` | 无毫秒 |
+
+**建议统一为**:
+```java
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")  // 去掉.SSS
+private Date expireTime;
+```
+
+---
+
+### 关键点
+
+1. **@DateTimeFormat**: 控制请求参数 **String → Date** 的绑定
+2. **spring.jackson.date-format**: 控制 **Date → JSON String** 的序列化
+3. **前端**: 用 dayjs 保证发送格式统一
+
+三者协作实现前后端时间格式的一致性。
+
+---
+
+## 时间格式不统一的常见坑和 Bug
+
+### 1. 前端发送毫秒，后端解析失败
+
+**场景**:
+```javascript
+// 前端发送
+expireTime: "2026-05-06 12:00:00.123"
+```
+
+**后端配置**:
+```java
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")  // 没有毫秒
+```
+
+**结果**:
+```
+400 Bad Request - Failed to convert property value of type 'java.lang.String'
+to required type 'java.util.Date'
+```
+
+---
+
+### 2. 时区问题 (最隐蔽的坑)
+
+**场景**:
+```javascript
+// 前端 UTC 时间
+expireTime: "2026-05-06 12:00:00"
+// 后端认为是本地时区，可能导致时间差 8/13/16 小时
+```
+
+**典型 Bug**:
+- 定时任务早/晚触发
+- 活动过期时间判断错误
+- 跨境业务时间混乱
+
+**解决方案**:
+```yaml
+spring:
+  jackson:
+    time-zone: GMT+8  # 或 Asia/Shanghai
+```
+
+---
+
+### 3. 格式宽严不一致
+
+**场景**:
+```java
+// 开发环境: 宽松解析可以工作
+"2026-05-06 12:00:00"  → Date ✓
+
+// 生产环境: 某个接口突然严格解析
+"2026-5-6 12:00:00"    → Date ✗ (月份没补0)
+```
+
+**结果**: 测试通过，上线后部分用户报错
+
+---
+
+### 4. 数据库存储精度丢失
+
+**场景**:
+```java
+// MySQL datetime 类型精度
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
+private Date expireTime;  // 精确到毫秒
+```
+
+**数据库**:
+```sql
+`expire_time` datetime  -- 默认只存到秒
+```
+
+**Bug**:
+- 毫秒级时间戳截断
+- 两次请求在同一秒内，认为时间相同
+- 并发控制失效
+
+**修复**:
+```sql
+`expire_time` datetime(3)  -- 保留毫秒
+```
+
+---
+
+### 5. 序列化和反序列化不对称
+
+**场景**:
+```java
+// 接收格式
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
+
+// 返回格式
+spring.jackson.date-format: yyyy-MM-dd HH:mm:ss  // 没有毫秒
+```
+
+**问题**:
+- 前端发送 `2026-05-06 12:00:00.123`
+- 后端返回 `2026-05-06 12:00:00`
+- 前端以为数据被"篡改"
+
+---
+
+### 6. null 值处理不一致
+
+**场景**:
+```javascript
+// 前端
+expireTime: null
+```
+
+```java
+// 后端
+private Date expireTime;  // 可能为 null
+```
+
+**数据库查询**:
+```java
+// 错误写法
+WHERE expireTime > #{now}  // null 值会被忽略
+
+// 正确写法
+WHERE (expireTime IS NULL OR expireTime > #{now})
+```
+
+---
+
+### 7. 不同接口格式不统一
+
+**场景**:
+```java
+// Team 实体
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
+private Date expireTime;
+
+// User 实体
+@DateTimeFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")  // ISO 8601
+private Date birthTime;
+```
+
+**前端混乱**:
+- 需要针对不同接口用不同格式
+- 容易复制粘贴错误
+
+---
+
+### 8. 前端 dayjs 格式与后端不匹配
+
+**场景**:
+```javascript
+// 前端: 粗心写错
+expireTime: dayjs(time).format('YYYY-MM-DD HH:mm')  // 缺少秒
+```
+
+```java
+// 后端期望
+@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+```
+
+**结果**: 解析失败或秒数被默认为 00
+
+---
+
+### 推荐最佳实践
+
+```java
+// 1. 统一时间格式常量
+public class DateConstants {
+    public static final String DEFAULT_FORMAT = "yyyy-MM-dd HH:mm:ss";
+    public static final String WITH_MILLIS = "yyyy-MM-dd HH:mm:ss.SSS";
+}
+
+// 2. 统一注解配置
+@DateTimeFormat(pattern = DateConstants.DEFAULT_FORMAT)
+private Date expireTime;
+
+// 3. 全局 Jackson 配置
+spring:
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+// 4. 前端统一工具函数
+const formatTime = (time) => dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+```
+
+**核心原则**: **格式统一、前后一致、时区明确、精度匹配**
+
+---
