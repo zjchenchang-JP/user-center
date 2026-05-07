@@ -1,6 +1,9 @@
 server:
   port: 8080
 spring:
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss #时间格式化
+    # time-zone: GMT+8  # 或 Asia/Shanghai
   application:
     name: user-center # 设置应用名为 user-center，用于服务注册、日志标识等场景。
   datasource:
