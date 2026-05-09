@@ -133,6 +133,12 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
     @Override
     public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+        //  不加 @RequestBody 时，Spring 走的是 表单参数绑定（form-data / query string），它会自动把请求参数按字段名映射到 TeamQuery 的属性上
+        //  不传任何参数时：
+        //   - teamQuery 不为 null（Spring 会创建一个空对象）
+        //   - 所有字段都是 null，进入 if (teamQuery != null) 分支后，所有条件判断都被跳过
+        //   - 最终只拼接了 status = 0（公开）和 未过期 两个条件，执行全量查询
+
         // // 设置分页默认值
         // if (teamQuery == null) {
         //     teamQuery = new TeamQuery();
@@ -156,6 +162,11 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             if (teamId != null && teamId > 0) {
                 queryWrapper.eq(Team::getId, teamId);
             }
+            List<Long> idList = teamQuery.getIdList();
+            if (CollectionUtils.isNotEmpty(idList)) {
+                queryWrapper.in(Team::getId, idList);
+            }
+
             // 可以通过某个关键词同时对名称和描述查询
             // 传入了查询关键词 才拼接该条件
             String searchText = teamQuery.getSearchText();
@@ -186,7 +197,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
         // 根据队伍状态查询（移到 if 外部，确保必定执行）
         // 只有管理员才能查看加密还有非公开的房间
-        // TODO 即使非公开房间，创建人自己也能看到
+        // TODO 即使非公开房间，创建人自己应该也能看到
         Integer status = (teamQuery != null) ? teamQuery.getStatus() : null;
         TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
         if (statusEnum == null) {

@@ -15,10 +15,10 @@ public class PageRequest implements Serializable {
     /**
      * 页面大小
      */
-    protected Integer pageSize;
+    protected Integer pageSize = 10;
 
     /**
      * 当前第几页
      */
-    protected Integer pageNum;
+    protected Integer pageNum = 1;
 }
