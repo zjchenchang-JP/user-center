@@ -4,6 +4,8 @@ import com.zjcc.usercenter.common.PageRequest;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.List;
+
 /**
  * 数据传输封装类
  *
@@ -47,4 +49,9 @@ public class TeamQuery extends PageRequest {
      * 搜索关键字（同时从队伍名称和描述搜索）
      */
     private String searchText;
+
+    /**
+     * 已加入队伍 id列表
+     */
+    private List<Long> idList;
 }
