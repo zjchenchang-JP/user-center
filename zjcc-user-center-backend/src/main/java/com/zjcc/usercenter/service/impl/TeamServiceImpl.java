@@ -19,6 +19,7 @@ import com.zjcc.usercenter.model.vo.UserVO;
 import com.zjcc.usercenter.service.TeamService;
 import com.zjcc.usercenter.service.UserService;
 import com.zjcc.usercenter.service.UserTeamService;
+import com.zjcc.usercenter.utils.RequestHolder;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.redisson.api.RLock;
@@ -102,13 +103,13 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         if (expireTime != null && new Date().after(expireTime)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "超时时间早于当前时间");
         }
-        //   g. 校验用户最多创建 5 个队伍
+        //   g. 校验用户最多加入 5 个队伍（包括创建和加入的）
         final long userId = loginUser.getId();
-        QueryWrapper<Team> teamQueryWrapper = new QueryWrapper<>();
-        teamQueryWrapper.eq("userId", userId);
-        long hasTeamNum = this.count(teamQueryWrapper);
+        LambdaQueryWrapper<UserTeam> userTeamQueryWrapper = new LambdaQueryWrapper<>();
+        userTeamQueryWrapper.eq(UserTeam::getUserId, userId);
+        long hasTeamNum = userTeamService.count(userTeamQueryWrapper);
         if (hasTeamNum >= 5) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "最多创建5个队伍");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "最多加入5个队伍");
         }
         // 4-5插入是关联操作 必须用事务控制
         // 4. 插入队伍信息到队伍表
@@ -133,6 +134,9 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
     @Override
     public List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin) {
+        // 从 ThreadLocal 中获取当前登录用户（由 LoginInterceptor 拦截器设置）
+        Long loginUserId = RequestHolder.getUserId();
+
         //  不加 @RequestBody 时，Spring 走的是 表单参数绑定（form-data / query string），它会自动把请求参数按字段名映射到 TeamQuery 的属性上
         //  不传任何参数时：
         //   - teamQuery 不为 null（Spring 会创建一个空对象）
@@ -197,17 +201,29 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
 
         // 根据队伍状态查询（移到 if 外部，确保必定执行）
         // 只有管理员才能查看加密还有非公开的房间
-        // TODO 即使非公开房间，创建人自己应该也能看到
+        // 即使非公开房间，创建人自己应该也能看到
         Integer status = (teamQuery != null) ? teamQuery.getStatus() : null;
+        Long queryUserId = (teamQuery != null) ? teamQuery.getUserId() : null;
         TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
         if (statusEnum == null) {
             // 如果前端没传入该值，默认只查询公开房间
-            statusEnum = TeamStatusEnum.PUBLIC;
+            // 但如果查询自己创建的队伍，则不限制状态
+            if (Objects.equals(queryUserId, loginUserId)) {
+                // 查询自己创建的队伍：不限制状态（不拼接 status 条件）
+            } else {
+                statusEnum = TeamStatusEnum.PUBLIC;
+                queryWrapper.eq(Team::getStatus, statusEnum.getValue());
+            }
+        } else {
+            // 前端明确指定了 status
+            if (!isAdmin && !statusEnum.equals(TeamStatusEnum.PUBLIC)) {
+                // 非管理员 + 非公开队伍：只能查询自己创建的
+                if (!Objects.equals(queryUserId, loginUserId)) {
+                    throw new BusinessException(ErrorCode.NO_AUTH, "只有管理员或创建者本人才能查看非公开队伍");
+                }
+            }
+            queryWrapper.eq(Team::getStatus, statusEnum.getValue());
         }
-        if (!isAdmin && !statusEnum.equals(TeamStatusEnum.PUBLIC)) {
-            throw new BusinessException(ErrorCode.NO_AUTH);
-        }
-        queryWrapper.eq(Team::getStatus, statusEnum.getValue());
 
         // 不展示已过期的队伍（根据过期时间筛选）
         // expireTime is null or expireTime > now()
@@ -219,34 +235,57 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             return new ArrayList<>();
         }
         // 关联查询创建人的用户信息
-        ArrayList<TeamUserVO> teamUserVOList = new ArrayList<>();
-        for (Team team : teamList) {
-            Long userId = team.getUserId();
-            if (userId == null) {
-                continue;
-            }
-            User user = userService.getById(userId);
-            TeamUserVO teamUserVO = new TeamUserVO();
-            BeanUtils.copyProperties(team, teamUserVO);
-            // 脱敏封装VO
-            if (user != null) {
-                UserVO userVO = new UserVO();
-                BeanUtils.copyProperties(user, userVO);
-                teamUserVO.setCreateUser(userVO);
-            }
-            teamUserVOList.add(teamUserVO);
-        }
-        // TODO 关联查询已加入队伍的用户信息（可能会很耗费性能，可以用自己写 SQL 的方式实现）
-        // // 提取所有队伍ID
-        // List<Long> teamIds = teamList.stream()
-        //        .map(Team::getId)
-        //        .collect(java.util.stream.Collectors.toList());
-        // // ✅ 使用自定义 SQL 关联查询：创建人信息、已加入人数、当前用户是否已加入
-        // // 注意：这里传入 null 作为 loginUserId，因为 listTeams 方法签名中没有该参数
-        // // 如果需要判断"当前用户是否已加入"，需要修改方法签名传入 loginUserId
-        // List<TeamUserVO> teamUserVOList = teamMapper.listTeamUserVOByIds(teamIds, null);
+        return assembleTeamUserVO(teamList);
+    }
 
-        return teamUserVOList;
+    @Override
+    public List<TeamUserVO> listMyCreateTeams() {
+        Long userId = RequestHolder.getUserId();
+        if (userId == null) {
+            return new ArrayList<>();
+        }
+
+        TeamQuery teamQuery = new TeamQuery();
+        teamQuery.setUserId(userId);
+
+        return listTeams(teamQuery, false);
+    }
+
+    @Override
+    public List<TeamUserVO> listMyJoinTeams() {
+        Long userId = RequestHolder.getUserId();
+        if (userId == null) {
+            return new ArrayList<>();
+        }
+
+        // 1. 查询用户加入的队伍 ID
+        LambdaQueryWrapper<UserTeam> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(UserTeam::getUserId, userId);
+        List<UserTeam> userTeamList = userTeamService.list(queryWrapper);
+
+        if (CollectionUtils.isEmpty(userTeamList)) {
+            return new ArrayList<>();
+        }
+
+        // 2. 提取 ID 列表
+        List<Long> idList = userTeamList.stream()
+                .map(UserTeam::getTeamId)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+
+        // 3. 查询队伍详情（能查询到自己创建的非公开队伍）
+        LambdaQueryWrapper<Team> teamQueryWrapper = new LambdaQueryWrapper<>();
+        teamQueryWrapper.in(Team::getId, idList);
+        teamQueryWrapper.and(qw -> qw.gt(Team::getExpireTime, new Date())
+                .or().isNull(Team::getExpireTime));
+
+        List<Team> teamList = this.list(teamQueryWrapper);
+        if (CollectionUtils.isEmpty(teamList)) {
+            return new ArrayList<>();
+        }
+
+        // 4. 组装 VO（包含创建人信息）
+        return assembleTeamUserVO(teamList);
     }
 
     @Override
@@ -400,7 +439,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
         }
         // 3. 校验我是否已加入队伍
-        int userId = loginUser.getId();
+        long userId = loginUser.getId();
         LambdaQueryWrapper<UserTeam> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(UserTeam::getTeamId, teamId);
         queryWrapper.eq(UserTeam::getUserId, userId);
@@ -459,6 +498,46 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         }
         // 删除队伍
         return this.removeById(teamId);
+    }
+
+    /**
+     * 组装 TeamUserVO 列表（包含创建人信息）
+     *
+     * @param teamList 队伍列表
+     * @return TeamUserVO 列表
+     */
+    private List<TeamUserVO> assembleTeamUserVO(List<Team> teamList) {
+        ArrayList<TeamUserVO> teamUserVOList = new ArrayList<>();
+        for (Team team : teamList) {
+            Long userId = team.getUserId();
+            if (userId == null) {
+                continue;
+            }
+            User user = userService.getById(userId);
+            TeamUserVO teamUserVO = new TeamUserVO();
+            BeanUtils.copyProperties(team, teamUserVO);
+            // 脱敏封装VO
+            if (user != null) {
+                UserVO userVO = new UserVO();
+                BeanUtils.copyProperties(user, userVO);
+                teamUserVO.setCreateUser(userVO);
+            }
+            // 查询当前用户是否已加入该队伍
+            // 便于前端控制 按钮显示 权限（已加入才能退出）
+            Long loginUserId = RequestHolder.getUserId();
+            LambdaQueryWrapper<UserTeam> joinQuery = new LambdaQueryWrapper<>();
+            joinQuery.eq(UserTeam::getTeamId, team.getId());
+            joinQuery.eq(UserTeam::getUserId, loginUserId);
+            teamUserVO.setHasJoin(userTeamService.count(joinQuery) > 0);
+
+            // // 查询队伍已加入人数
+            // LambdaQueryWrapper<UserTeam> numQuery = new LambdaQueryWrapper<>();
+            // numQuery.eq(UserTeam::getTeamId, team.getId());
+            // teamUserVO.setHasJoinNum((int) userTeamService.count(numQuery));
+
+            teamUserVOList.add(teamUserVO);
+        }
+        return teamUserVOList;
     }
 
 
