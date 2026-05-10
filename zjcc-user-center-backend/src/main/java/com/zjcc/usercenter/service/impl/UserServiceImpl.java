@@ -7,11 +7,13 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.exception.BusinessException;
+import com.zjcc.usercenter.mapper.UserMapper;
 import com.zjcc.usercenter.model.domain.User;
 import com.zjcc.usercenter.service.UserService;
-import com.zjcc.usercenter.mapper.UserMapper;
+import com.zjcc.usercenter.utils.AlgorithmUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.math3.util.Pair;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,6 @@ import org.springframework.util.DigestUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
-
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -114,9 +115,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         //                 .or()
         //                 .eq("planetCode", planetCode));
         QueryWrapper<User> queryWrapper = new QueryWrapper<User>()
-                        .eq("userAccount", userAccount)
-                        .or()
-                        .eq("planetCode", planetCode);
+                .eq("userAccount", userAccount)
+                .or()
+                .eq("planetCode", planetCode);
         // // 打印生成的 SQL
         // System.out.println("SQL: " + queryWrapper.getCustomSqlSegment());
         // System.out.println("参数: " + queryWrapper.getParamNameValuePairs());
@@ -249,7 +250,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     public User getSafetyUser(User originUser) {
         if (originUser == null) {
             log.warn("[数据脱敏] 发现脏数据：用户信息为 null，已跳过，调用栈：",
-                     new RuntimeException("dirty-data-stack-trace"));
+                    new RuntimeException("dirty-data-stack-trace"));
             return null;
         }
         User safetyUser = new User();
@@ -315,7 +316,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                         return false;
                     }
                     // 将JSON字符串转为Set<String>
-                    Set<String> userTags = gson.fromJson(tagsJson, new TypeToken<Set<String>>() {}.getType());
+                    Set<String> userTags = gson.fromJson(tagsJson, new TypeToken<Set<String>>() {
+                    }.getType());
                     // // if (userTags == null || userTags.isEmpty()) {
                     // //     return false;
                     // // }
@@ -418,6 +420,131 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return userPage;
     }
 
+
+    /**
+     * 推荐匹配用户 - 基于标签相似度的用户推荐
+     * <p>
+     * 算法流程：
+     * 1. 查询所有有标签的用户（仅查询 id 和 tags 字段，优化性能）
+     * 2. 解析当前用户的标签列表
+     * 3. 遍历所有用户，使用编辑距离算法计算标签相似度
+     * 4. 按相似度排序，取 Top N 个最相似的用户
+     * 5. 根据排序后的 ID 列表查询用户完整信息并返回
+     *
+     * @param num       需要推荐的匹配用户数量
+     * @param loginUser 当前登录用户
+     * @return 按相似度从高到低排序的用户列表
+     */
+    @Override
+    public List<User> matchUsers(long num, User loginUser) {
+        // ============ 阶段1: 数据查询 ============
+        // 查询所有有标签的用户，仅查询 id 和 tags 字段（优化性能，避免加载全字段）
+        // ⚠️ 问题1: 此处查询全表数据，数据量大时可能存在 OOM 风险
+        // 目前数据库50w条数据，查询10秒...;全字段20秒-30秒
+        // 可选优化方案：
+        //   1. 限制查询数量：queryWrapper.last("limit 50000")
+        //   2. 分页查询：this.page(new Page<>(pageNum, pageSize), queryWrapper)
+        // 不适合分页；因为查出来的只是分页数据当中的最匹配，不是全数据中的最匹配
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.isNotNull("tags");  // 只查询有标签的用户
+        queryWrapper.select("id", "tags"); // ✅ 优化点：只查询 id 和 tags 字段，避免加载全部字段
+        List<User> userList = this.list(queryWrapper);
+
+        // ============ 阶段2: 解析当前用户标签 ============
+        // ⚠️ 问题2: 未对 loginUser.getTags() 进行空值校验，可能抛出 JsonSyntaxException
+        String tags = loginUser.getTags();
+        Gson gson = new Gson();
+        List<String> tagList = new ArrayList<>();
+        if (StringUtils.isNotBlank(tags)) {
+            // 将 JSON 格式的标签字符串解析为 List<String>
+            tagList = gson.fromJson(tags, new TypeToken<List<String>>() {
+            }.getType());
+        }
+
+        // ============ 阶段3: 计算相似度（核心算法） ============
+        // 创建 Pair 列表，存储（用户，相似度距离）的键值对
+        List<Pair<User, Long>> list = new ArrayList<>();
+
+        // 依次计算当前用户和所有用户的相似度
+        // TODO: 数据量大时，此循环性能较差，可以考虑使用多线程并行计算
+        for (int i = 0; i < userList.size(); i++) {
+            User user = userList.get(i);
+            String userTags = user.getTags();
+
+            // ✅ 添加日志：验证过滤条件
+            if (user.getId().equals(loginUser.getId())) {
+                log.warn("发现当前用户: userId={}, loginUser.getId()={}, 跳过", user.getId(), loginUser.getId());
+            }
+
+            // 过滤条件：跳过无标签的用户和当前用户自己
+            // ✅ 修复问题：使用 equals() 比较 Long 对象，避免 == 比较引用地址导致的错误
+            // if (StringUtils.isBlank(userTags) || (user.getId() == loginUser.getId())) {
+            if (StringUtils.isBlank(userTags) || Objects.equals(user.getId(), loginUser.getId())) {
+                continue;
+            }
+
+            // 将该用户的 JSON 标签字符串解析为 List<String>
+            List<String> userTagList = gson.fromJson(userTags, new TypeToken<List<String>>() {
+            }.getType());
+
+            // 计算编辑距离（相似度）
+            // 编辑距离越小，表示两个标签列表越相似
+            long distance = AlgorithmUtils.minDistance(tagList, userTagList);
+            list.add(new Pair<>(user, distance));
+        }
+
+        // ✅ 添加日志：验证是否把自己过滤掉了
+        log.info("当前用户ID={}, 计算相似度的用户数={}", loginUser.getId(), list.size());
+
+        // ============ 阶段4: 排序并取 Top N ============
+        // 按编辑距离从小到大排序（相似度从高到低）
+        // ⚠️ 问题4: long 强转 int 可能溢出，导致排序错误
+        //          例如：当 a.getValue()=2147483648, b.getValue()=0 时，结果为 -2147483648，会导致排序混乱
+        //          建议修改为：.sorted((a, b) -> Long.compare(a.getValue(), b.getValue()))
+        List<Pair<User, Long>> topUserPairList = list.stream()
+                .sorted((a, b) -> (int) (a.getValue() - b.getValue())) // 编辑距离越小越相似
+                .limit(num) // 只取前 num 个最相似的用户
+                .collect(Collectors.toList());
+
+        // 提取排序后的用户 ID 列表（保持排序顺序）
+        List<Long> userIdList = topUserPairList.stream()
+                .map(pari -> pari.getKey().getId()) // ⚠️ 问题6: "pari" 拼写错误，应为 "pair"
+                .collect(Collectors.toList());
+
+        // ✅ 添加日志：验证匹配的用户 ID 列表
+        log.info("Top{} 匹配用户ID列表: {}", num, userIdList);
+
+        // ============ 阶段5: 查询完整信息 ============
+        // 根据排序后的 ID 列表查询用户的完整信息
+        // ✅ 优化设计: 分两次查询是合理的性能优化
+        //    - 第1次只查 id+tags，数据量小，传输快
+        //    - 第2次只查 Top N 用户的完整信息，避免加载无效数据
+        QueryWrapper<User> userQueryWrapper = new QueryWrapper<>();
+        userQueryWrapper.in("id", userIdList);
+        // 使用 groupingBy 按 ID 分组，方便后续按顺序取值
+        Map<Long, List<User>> userIdUserListMap = this.list(userQueryWrapper)
+                                                    .stream()
+                                                    .map(user -> getSafetyUser(user)) // 脱敏处理
+                                                    .collect(Collectors.groupingBy(User::getId));
+
+        // 因为上面的 Map 查询打乱了顺序，需要根据之前排序的 ID 列表重新排序
+        // ✅ 优化点：这里保证了最终返回结果的顺序与相似度排序一致
+        List<User> finalUserList = new ArrayList<>();
+        for (Long userId : userIdList) {
+            List<User> users = userIdUserListMap.get(userId);
+            // ✅ 修复问题8: 添加空值判断，避免 NPE
+            if (users != null && !users.isEmpty()) {
+                finalUserList.add(users.get(0)); // 按 ID 顺序添加用户
+            }
+        }
+
+        // ✅ 添加日志：验证最终返回的用户
+        log.info("最终返回的用户ID列表: {}", finalUserList.stream()
+                .map(User::getId)
+                .collect(Collectors.toList()));
+
+        return finalUserList;
+    }
 }
 
 

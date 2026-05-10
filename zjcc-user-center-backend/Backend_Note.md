@@ -1887,3 +1887,194 @@ public boolean joinTeam(TeamJoinRequest teamJoinRequest, User loginUser) {
 当前 joinTeam 方法只有一个写操作（save(userTeam)），不需要事务。
 
 ---
+
+# 2026/05/10
+## UserHolder/RequestHolder 的 ThreadLocal 成员变量扩展
+
+### 基础回顾
+
+`UserHolder` 使用 `ThreadLocal` 保存当前线程的上下文信息，在整个请求生命周期内共享数据。
+
+```java
+public class UserHolder {
+    private static final ThreadLocal<User> USER_THREAD_LOCAL = new ThreadLocal<>();
+
+    public static User getUser() {
+        return USER_THREAD_LOCAL.get();  // 没有值时返回 null
+    }
+}
+```
+
+**`ThreadLocal.get()` 默认返回 `null`**：因为 `ThreadLocal.initialValue()` 默认实现返回 `null`。
+
+---
+
+### 扩展：添加更多 ThreadLocal 成员变量
+
+`UserHolder` 可以有多个 `ThreadLocal` 成员，保存不同类型的上下文信息。
+
+#### 示例：扩展后的 UserHolder
+
+```java
+public class UserHolder {
+    // 保存当前登录用户
+    private static final ThreadLocal<User> USER_THREAD_LOCAL = new ThreadLocal<>();
+
+    // 保存请求 ID（用于日志追踪）
+    private static final ThreadLocal<String> REQUEST_ID = new ThreadLocal<>();
+
+    // 保存请求开始时间（用于计算接口耗时）
+    private static final ThreadLocal<Long> REQUEST_START_TIME = new ThreadLocal<>();
+
+    // 保存客户端 IP
+    private static final ThreadLocal<String> CLIENT_IP = new ThreadLocal<>();
+
+    // User 相关方法
+    public static void saveUser(User user) {
+        USER_THREAD_LOCAL.set(user);
+    }
+
+    public static User getUser() {
+        return USER_THREAD_LOCAL.get();
+    }
+
+    public static Long getUserId() {
+        User user = getUser();
+        return user != null ? user.getId() : null;
+    }
+
+    // RequestId 相关方法
+    public static void setRequestId(String requestId) {
+        REQUEST_ID.set(requestId);
+    }
+
+    public static String getRequestId() {
+        return REQUEST_ID.get();
+    }
+
+    // RequestStartTime 相关方法
+    public static void setRequestStartTime(Long startTime) {
+        REQUEST_START_TIME.set(startTime);
+    }
+
+    public static Long getRequestStartTime() {
+        return REQUEST_START_TIME.get();
+    }
+
+    // ClientIp 相关方法
+    public static void setClientIp(String ip) {
+        CLIENT_IP.set(ip);
+    }
+
+    public static String getClientIp() {
+        return CLIENT_IP.get();
+    }
+
+    /**
+     * 清理所有 ThreadLocal（防止内存泄漏）
+     */
+    public static void removeAll() {
+        USER_THREAD_LOCAL.remove();
+        REQUEST_ID.remove();
+        REQUEST_START_TIME.remove();
+        CLIENT_IP.remove();
+    }
+}
+```
+
+---
+
+### 使用场景
+
+#### 1. 在拦截器中设置多个上下文
+
+```java
+@Component
+public class LoginInterceptor implements HandlerInterceptor {
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        // 保存用户
+        User user = (User) request.getSession().getAttribute(USER_LOGIN_STATE);
+        if (user != null) {
+            UserHolder.saveUser(user);
+        }
+
+        // 保存请求 ID
+        UserHolder.setRequestId(UUID.randomUUID().toString());
+
+        // 保存请求开始时间
+        UserHolder.setRequestStartTime(System.currentTimeMillis());
+
+        // 保存客户端 IP
+        UserHolder.setClientIp(getClientIp(request));
+
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
+        // 清理所有 ThreadLocal
+        UserHolder.removeAll();
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
+    }
+}
+```
+
+#### 2. 在业务代码中使用
+
+```java
+// 计算接口耗时
+Long startTime = UserHolder.getRequestStartTime();
+if (startTime != null) {
+    long duration = System.currentTimeMillis() - startTime;
+    log.info("接口耗时: {}ms", duration);
+}
+
+// 记录日志时带上请求 ID
+String requestId = UserHolder.getRequestId();
+log.info("请求ID: {}, 操作: xxx", requestId, xxx);
+
+// 获取客户端 IP 进行风控
+String clientIp = UserHolder.getClientIp();
+if (isBlacklisted(clientIp)) {
+    throw new BusinessException(ErrorCode.NO_AUTH, "IP 已被拉黑");
+}
+```
+
+---
+
+### 注意事项
+
+| 注意事项 | 说明 |
+|---------|------|
+| **内存泄漏风险** | 每增加一个 `ThreadLocal`，就要记得在 `removeAll()` 中清理 |
+| **命名规范** | 变量名用全大写，表示常量（如 `REQUEST_ID`） |
+| **封装原则** | 每个 `ThreadLocal` 都要有对应的 `get/set` 方法 |
+| **线程隔离** | 每个线程有独立的副本，互不影响 |
+| **必须清理** | 在 `afterCompletion` 中调用 `removeAll()`，避免线程池复用时的数据污染 |
+
+---
+
+### 常见扩展场景
+
+| 上下文信息 | 用途 |
+|-----------|------|
+| 请求 ID | 分布式追踪、日志关联 |
+| 请求开始时间 | 接口耗时统计、性能监控 |
+| 客户端 IP | 风控、限流、地域分析 |
+| 设备信息 | 移动端/PC 区分、版本统计 |
+| 租户 ID | 多租户系统数据隔离 |
+| 语言/时区 | 国际化、本地化 |
+
+---

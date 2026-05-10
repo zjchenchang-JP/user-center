@@ -174,4 +174,20 @@ public class UserController {
         return ResponseResult.ok(userService.removeById(id));
     }
 
+    /**
+     * 基于标签相似度 推荐用户
+     *
+     * @param num 最匹配的前num个
+     * @param request
+     * @return
+     */
+    @GetMapping("/match")
+    public BaseResponse<List<User>> matchUsers(long num, HttpServletRequest request) {
+        if (num <= 0 || num > 20) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User user = userService.getLoginUser(request);
+        return ResponseResult.ok(userService.matchUsers(num, user));
+    }
+
 }

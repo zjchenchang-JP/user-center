@@ -97,4 +97,11 @@ public interface UserService extends IService<User> {
      */
     Page<User> recommendUsers(User loginUser, long pageSize, long pageNum);
 
+    /**
+     * 匹配用户
+     * @param num
+     * @param user
+     * @return
+     */
+    List<User> matchUsers(long num, User user);
 }

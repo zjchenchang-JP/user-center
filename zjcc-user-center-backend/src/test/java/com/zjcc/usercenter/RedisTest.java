@@ -29,7 +29,7 @@ public class RedisTest {
         valueOperations.set("ccInt", 1);
         valueOperations.set("ccDouble", 2.0);
         User user = new User();
-        user.setId(1);
+        user.setId(1L);
         user.setUsername("ZJCC");
         valueOperations.set("ccUser", user);
 

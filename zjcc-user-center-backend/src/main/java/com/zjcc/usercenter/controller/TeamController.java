@@ -1,13 +1,11 @@
 package com.zjcc.usercenter.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
 import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.Team;
 import com.zjcc.usercenter.model.domain.User;
-import com.zjcc.usercenter.model.domain.UserTeam;
 import com.zjcc.usercenter.model.dto.TeamQuery;
 import com.zjcc.usercenter.model.request.TeamAddRequest;
 import com.zjcc.usercenter.model.request.TeamJoinRequest;
@@ -23,10 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * @author zjchenchang
@@ -101,47 +96,27 @@ public class TeamController {
 
     /**
      * 查看自己创建的房间
-     * 复用 listTeam 方法，只新增查询条件，不做修改（开闭原则）
-     * @param teamQuery
      * @param request
      * @return
      */
     @GetMapping("/list/my/create")
-    public BaseResponse<List<TeamUserVO>> listMyCreateTeams(TeamQuery teamQuery, HttpServletRequest request) {
-        if (teamQuery == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
-        User loginUser = userService.getLoginUser(request);
-        teamQuery.setUserId((long) loginUser.getId());
-        List<TeamUserVO> teamList = teamService.listTeams(teamQuery, true);
+    public BaseResponse<List<TeamUserVO>> listMyCreateTeams(HttpServletRequest request) {
+        // 登录校验
+        userService.getLoginUser(request);
+        List<TeamUserVO> teamList = teamService.listMyCreateTeams();
         return ResponseResult.ok(teamList);
     }
 
     /**
      * 获取我加入的队伍
-     * @param teamQuery
      * @param request
      * @return
      */
     @GetMapping("/list/my/join")
-    public BaseResponse<List<TeamUserVO>> listMyJoinTeams(TeamQuery teamQuery, HttpServletRequest request) {
-        if (teamQuery == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
-        User loginUser = userService.getLoginUser(request);
-        QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userId", loginUser.getId());
-        List<UserTeam> userTeamList = userTeamService.list(queryWrapper);
-        // 取出不重复的队伍 id  防御性编程 如果数据库已经有脏数据（历史原因)
-        // teamId - userId
-        // 根本上解决问题，应该在数据库层面添加唯一索引
-        // ALTER TABLE user_team ADD UNIQUE INDEX uk_user_team(user_id, team_id);
-        Map<Long, List<UserTeam>> listMap = userTeamList.stream()
-                .collect(Collectors.groupingBy(UserTeam::getTeamId));
-        List<Long> idList = new ArrayList<>(listMap.keySet());
-        teamQuery.setIdList(idList);
-        // 复用listTeams方法
-        List<TeamUserVO> teamList = teamService.listTeams(teamQuery, true);
+    public BaseResponse<List<TeamUserVO>> listMyJoinTeams(HttpServletRequest request) {
+        // 登录校验
+        userService.getLoginUser(request);
+        List<TeamUserVO> teamList = teamService.listMyJoinTeams();
         return ResponseResult.ok(teamList);
     }
 
@@ -169,8 +144,8 @@ public class TeamController {
     }
 
     // 解散队伍
-    @PostMapping("/delete")
-    public BaseResponse<Boolean> deleteTeam(@RequestBody long id, HttpServletRequest request) {
+    @DeleteMapping("/delete/{id}")
+    public BaseResponse<Boolean> deleteTeam(@PathVariable long id, HttpServletRequest request) {
         if (id <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }

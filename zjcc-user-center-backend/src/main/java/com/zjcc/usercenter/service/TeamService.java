@@ -35,6 +35,18 @@ public interface TeamService extends IService<Team> {
     List<TeamUserVO> listTeams(TeamQuery teamQuery, boolean isAdmin);
 
     /**
+     * 查询我创建的队伍列表
+     * @return 我创建的队伍列表（包含所有状态：公开、私有、加密）
+     */
+    List<TeamUserVO> listMyCreateTeams();
+
+    /**
+     * 查询我加入的队伍列表
+     * @return 我加入的队伍列表（包含所有状态的队伍）
+     */
+    List<TeamUserVO> listMyJoinTeams();
+
+    /**
      * 更新队伍
      * @param teamUpdateRequest 更新条件
      * @param loginUser 当前登录用户
