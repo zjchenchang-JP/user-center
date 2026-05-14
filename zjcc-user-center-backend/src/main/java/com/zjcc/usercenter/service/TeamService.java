@@ -27,7 +27,7 @@ public interface TeamService extends IService<Team> {
     long addTeam(Team team, User loginUser);
 
     /**
-     * 查询队伍
+     * 根据条件 查询队伍
      * @param teamQuery 查询条件
      * @param isAdmin 是否是管理员
      * @return 符合条件的队伍列表
