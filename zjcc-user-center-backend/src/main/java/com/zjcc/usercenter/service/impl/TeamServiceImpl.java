@@ -203,24 +203,39 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         // 只有管理员才能查看加密还有非公开的房间
         // 即使非公开房间，创建人自己应该也能看到
         Integer status = (teamQuery != null) ? teamQuery.getStatus() : null;
-        Long queryUserId = (teamQuery != null) ? teamQuery.getUserId() : null;
+        // Long queryUserId = (teamQuery != null) ? teamQuery.getUserId() : null;
         TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
         if (statusEnum == null) {
+            // 版本一
             // 如果前端没传入该值，默认只查询公开房间
             // 但如果查询自己创建的队伍，则不限制状态
-            if (Objects.equals(queryUserId, loginUserId)) {
-                // 查询自己创建的队伍：不限制状态（不拼接 status 条件）
+            // if (Objects.equals(queryUserId, loginUserId)) {
+            //     // 查询自己创建的队伍：不限制状态（不拼接 status 条件）
+            // } else {
+            //     statusEnum = TeamStatusEnum.PUBLIC;
+            //     queryWrapper.eq(Team::getStatus, statusEnum.getValue());
+            // }
+            // 版本二
+            // 关键词搜索时查公开+加密，默认加载只查公开
+            String searchText = (teamQuery != null) ? teamQuery.getSearchText() : null;
+            if (StringUtils.isNotBlank(searchText)) {
+                queryWrapper.and(qw -> qw.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue())
+                        .or().eq(Team::getStatus, TeamStatusEnum.SECRET.getValue()));
             } else {
-                statusEnum = TeamStatusEnum.PUBLIC;
-                queryWrapper.eq(Team::getStatus, statusEnum.getValue());
+                queryWrapper.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue());
             }
         } else {
             // 前端明确指定了 status
-            if (!isAdmin && !statusEnum.equals(TeamStatusEnum.PUBLIC)) {
-                // 非管理员 + 非公开队伍：只能查询自己创建的
-                if (!Objects.equals(queryUserId, loginUserId)) {
-                    throw new BusinessException(ErrorCode.NO_AUTH, "只有管理员或创建者本人才能查看非公开队伍");
-                }
+            // 版本一
+            // if (!isAdmin && !statusEnum.equals(TeamStatusEnum.PUBLIC)) {
+            //     // 非管理员 + 非公开队伍：只能查询自己创建的
+            //     if (!Objects.equals(queryUserId, loginUserId)) {
+            //         throw new BusinessException(ErrorCode.NO_AUTH, "只有管理员或创建者本人才能查看非公开队伍");
+            //     }
+            // }
+            // 版本二
+            if (!isAdmin && statusEnum.equals(TeamStatusEnum.PRIVATE)) {
+                throw new BusinessException(ErrorCode.NO_AUTH, "只有管理员才能查看私有队伍");
             }
             queryWrapper.eq(Team::getStatus, statusEnum.getValue());
         }
@@ -486,15 +501,15 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         Long teamId = team.getId();
         // 队长才能解散队伍
         // !team.getUserId().equals(loginUser.getId()) // 类型不同 返回false
-        if (Objects.equals(team.getUserId(),loginUser.getId())) {
-            throw new BusinessException(ErrorCode.NO_AUTH,"没有权限解散");
+        if (Objects.equals(team.getUserId(), loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "没有权限解散");
         }
         // 移除 所有加入 该队伍 的关联信息
         LambdaQueryWrapper<UserTeam> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(UserTeam::getTeamId, teamId);
         boolean result = userTeamService.remove(queryWrapper);
         if (!result) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR,"删除队伍关联信息失败");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "删除队伍关联信息失败");
         }
         // 删除队伍
         return this.removeById(teamId);
