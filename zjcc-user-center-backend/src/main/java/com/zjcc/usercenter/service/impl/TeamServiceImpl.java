@@ -203,7 +203,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         // 只有管理员才能查看加密还有非公开的房间
         // 即使非公开房间，创建人自己应该也能看到
         Integer status = (teamQuery != null) ? teamQuery.getStatus() : null;
-        // Long queryUserId = (teamQuery != null) ? teamQuery.getUserId() : null;
+        Long queryUserId = (teamQuery != null) ? teamQuery.getUserId() : null;
         TeamStatusEnum statusEnum = TeamStatusEnum.getEnumByValue(status);
         if (statusEnum == null) {
             // 版本一
@@ -217,12 +217,17 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             // }
             // 版本二
             // 关键词搜索时查公开+加密，默认加载只查公开
-            String searchText = (teamQuery != null) ? teamQuery.getSearchText() : null;
-            if (StringUtils.isNotBlank(searchText)) {
-                queryWrapper.and(qw -> qw.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue())
-                        .or().eq(Team::getStatus, TeamStatusEnum.SECRET.getValue()));
+            // 版本三：优先匹配 queryUserId == loginUserId（listMyCreateTeams 场景），否则走版本二逻辑
+            if (Objects.equals(queryUserId, loginUserId)) {
+                // 查自己创建的队伍：不限制状态（仅 listMyCreateTeams 触发，TeamPage 不传 userId）
             } else {
-                queryWrapper.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue());
+                String searchText = (teamQuery != null) ? teamQuery.getSearchText() : null;
+                if (StringUtils.isNotBlank(searchText)) {
+                    queryWrapper.and(qw -> qw.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue())
+                            .or().eq(Team::getStatus, TeamStatusEnum.SECRET.getValue()));
+                } else {
+                    queryWrapper.eq(Team::getStatus, TeamStatusEnum.PUBLIC.getValue());
+                }
             }
         } else {
             // 前端明确指定了 status
@@ -319,7 +324,7 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
             throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
         }
         // 3. 只有管理员或者队伍的创建者可以修改
-        if (oldTeam.getUserId() != loginUser.getId() && !userService.isAdmin(loginUser)) {
+        if (!Objects.equals(oldTeam.getUserId(), loginUser.getId()) && !userService.isAdmin(loginUser)) {
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
         // 4. 如果用户传入的新值和老值一致，就不用 update 了

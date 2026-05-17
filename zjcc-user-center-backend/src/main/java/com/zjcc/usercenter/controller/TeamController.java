@@ -1,11 +1,13 @@
 package com.zjcc.usercenter.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zjcc.usercenter.common.BaseResponse;
 import com.zjcc.usercenter.common.ErrorCode;
 import com.zjcc.usercenter.common.ResponseResult;
 import com.zjcc.usercenter.exception.BusinessException;
 import com.zjcc.usercenter.model.domain.Team;
 import com.zjcc.usercenter.model.domain.User;
+import com.zjcc.usercenter.model.domain.UserTeam;
 import com.zjcc.usercenter.model.dto.TeamQuery;
 import com.zjcc.usercenter.model.request.TeamAddRequest;
 import com.zjcc.usercenter.model.request.TeamJoinRequest;
@@ -21,7 +23,11 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * @author zjchenchang
@@ -62,7 +68,17 @@ public class TeamController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         boolean isAdmin = userService.isAdmin(request);
+        // 查询队伍列表
         List<TeamUserVO> teamList = teamService.listTeams(teamQuery, isAdmin);
+        // 查询已加入队伍的人数
+        // 1.查询出来的队伍ID
+        Set<Long> teamIdList = teamList.stream().map(TeamUserVO::getId).collect(Collectors.toSet());
+        LambdaQueryWrapper<UserTeam> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(UserTeam::getTeamId, teamIdList);
+        List<UserTeam> userTeamList = userTeamService.list(queryWrapper);
+        // 根据队伍ID 分组，获得加入该队伍的用户ID集合
+        Map<Long, List<UserTeam>> teamIdUserTeamList = userTeamList.stream().collect(Collectors.groupingBy(UserTeam::getTeamId));
+        teamList.forEach(teamUserVO -> teamUserVO.setHasJoinNum(teamIdUserTeamList.getOrDefault(teamUserVO.getId(), new ArrayList<>()).size()));
         return ResponseResult.ok(teamList);
     }
 
@@ -89,13 +105,14 @@ public class TeamController {
         User loginUser = userService.getLoginUser(request);
         Team team = teamService.getById(id);
         if (team == null) {
-            throw new BusinessException(ErrorCode.NULL_ERROR,"队伍不存在");
+            throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
         }
         return ResponseResult.ok(team);
     }
 
     /**
      * 查看自己创建的房间
+     *
      * @param request
      * @return
      */
@@ -109,6 +126,7 @@ public class TeamController {
 
     /**
      * 获取我加入的队伍
+     *
      * @param request
      * @return
      */
