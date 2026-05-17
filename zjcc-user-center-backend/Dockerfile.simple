@@ -1,0 +1,13 @@
+# 方式二（本地打包） 只传 jar + Dockerfile
+FROM openjdk:8-jre-alpine
+WORKDIR /app
+COPY user-center-0.0.1-SNAPSHOT.jar ./app.jar
+EXPOSE 8080
+CMD ["java","-jar","app.jar","--spring.profiles.active=prod","--server.port=8080"]
+
+#docker build -t user-center .
+#docker run -d \
+#  --name user-center \
+#  -p 8080:8080 \
+#  --restart=always \
+#  user-center

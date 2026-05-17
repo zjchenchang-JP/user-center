@@ -18,3 +18,11 @@ COPY --from=builder /app/target/user-center-0.0.1-SNAPSHOT.jar ./app.jar
 # 定义启动命令，核心运行操作
 CMD ["java","-jar","app.jar","--spring.profiles.active=prod","--server.port=8080"]
 # 还可以加上 "java -Xms256m -Xmx512m" 限制 Java 堆内存的大小，防止其无限制地申请内存
+# 多阶段构建需要源码编译；要上传完整项目源码
+# docker run -d \
+#  --name user-center \
+#  -p 8080:8080 \
+#  --restart=always \
+#  user-center \
+#  --spring.redis.host=你的Redis地址 \
+#  --spring.redis.password=你的Redis密码
