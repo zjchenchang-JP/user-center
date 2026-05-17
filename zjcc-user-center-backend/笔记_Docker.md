@@ -500,3 +500,14 @@ docker logs --since=5m user-center-app | grep -i error
 2. 精准找错误：用 `grep` 过滤关键词（`error`/`memory`/`Exception`）；
 3. 实时跟踪：用 `docker logs -f --tail=N 容器名` 只看新增的少量日志；
 4. 组合用法：`--tail` + `grep` 是排查容器启动错误最高效的方式。
+
+### 带Redis项目Docker命令
+```
+docker run -d \
+  --name user-center \
+  -p 8080:8080 \
+  --restart=always \
+  user-center \
+  --spring.redis.host=Redis地址 \
+  --spring.redis.password=Redis密码
+```
